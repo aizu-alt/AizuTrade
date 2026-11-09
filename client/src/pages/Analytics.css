@@ -1,0 +1,256 @@
+/* client/src/pages/Analytics.css — Bright, modern & dark-mode reactive */
+.analytics {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 24px 40px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  color: var(--text);
+}
+
+.an-card {
+  background: var(--surface-card);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.an-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.an-title {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: var(--text);
+}
+.an-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.an-segment {
+  display: flex;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+}
+.an-segment button {
+  padding: 7px 16px;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.an-segment button.active {
+  background: var(--surface-card);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+.an-select {
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+  cursor: pointer;
+}
+.an-select:focus {
+  border-color: var(--blue);
+}
+
+.an-state {
+  padding: 56px 16px;
+  text-align: center;
+  color: var(--muted);
+}
+.an-state-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+}
+.an-state-title.error {
+  color: var(--red);
+}
+.an-btn {
+  margin-top: 16px;
+  padding: 9px 20px;
+  border-radius: 8px;
+  background: var(--brand-gradient);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: var(--brand-glow);
+  cursor: pointer;
+}
+
+.an-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+.an-kpi {
+  padding: 22px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.an-kpi span {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+.an-kpi b {
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.5px;
+  color: var(--text);
+}
+.an-kpi small {
+  font-size: 13px;
+  color: var(--muted);
+}
+.pos {
+  color: var(--green);
+}
+.neg {
+  color: var(--red);
+}
+
+.an-panel {
+  padding: 22px 26px;
+  min-width: 0;
+}
+.an-panel h2 {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+}
+.an-sub {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.an-chart {
+  height: 300px;
+  margin-top: 16px;
+}
+.an-chart.tall {
+  height: 340px;
+}
+.an-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+/* chart tooltip */
+.an-tip {
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-card);
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+  font-size: 13px;
+}
+.an-tip > b {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text);
+  font-weight: 700;
+}
+.an-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.an-tip-row i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.an-tip-sub {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.an-table-wrap {
+  overflow-x: auto;
+  margin-top: 14px;
+}
+.an-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  text-align: left;
+}
+.an-table th {
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--surface-subtle);
+}
+.an-table td {
+  padding: 12px 14px;
+  border-top: 1px solid var(--line);
+}
+.an-name {
+  font-weight: 700;
+  color: var(--text);
+}
+.an-num {
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+@media (max-width: 1023px) {
+  .an-kpis {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .an-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 767px) {
+  .analytics {
+    padding: 16px 16px 40px;
+  }
+  .an-kpis {
+    grid-template-columns: 1fr;
+  }
+  .an-chart,
+  .an-chart.tall {
+    height: 260px;
+  }
+}
+
+.an-chart-error {
+  margin: 14px 0 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--red-bg);
+  color: var(--red-text);
+  font-size: 14px;
+}

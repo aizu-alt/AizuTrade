@@ -1,0 +1,18 @@
+/* client/src/components/layout/UserMenu.css  —  account menu in the navbar */
+.um { position: relative; }
+.um-btn { font-size: 16px; font-weight: 700; cursor: pointer; }
+.um-menu {
+  position: absolute; right: 0; top: calc(100% + 10px); z-index: 60;
+  min-width: 230px; padding: 8px;
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
+}
+.um-who { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-bottom: 1px solid #f1f5f9; margin-bottom: 6px; }
+.um-who b { font-size: 14px; color: #0f172a; }
+.um-who span { font-size: 13px; color: #64748b; overflow-wrap: anywhere; }
+.um-out {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; border: 0; border-radius: 8px;
+  background: transparent; color: #dc2626; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.um-out:hover { background: #fef2f2; }
