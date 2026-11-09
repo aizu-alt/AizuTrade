@@ -11,7 +11,9 @@ const RESEND_SECONDS = 60;
 const SAME_ANSWER = { message: "If that email has an account, instructions have been sent to it." };
 
 const NEON_AUTH_BASE = process.env.NEON_AUTH_BASE_URL;
-if (!NEON_AUTH_BASE) throw new Error("NEON_AUTH_BASE_URL is required in server .env");
+if (!NEON_AUTH_BASE) {
+  console.warn("[WARN] NEON_AUTH_BASE_URL not set — Neon Auth features will be disabled.");
+}
 
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "http://localhost:5173";
 
@@ -30,6 +32,7 @@ const hashCode = (userId, code) =>
 
 // Helper: Call Neon Auth API
 async function callNeonAuth(endpoint, body = {}, headers = {}) {
+  if (!NEON_AUTH_BASE) return { ok: false, status: 503, error: "Neon Auth not configured" };
   try {
     const res = await fetch(`${NEON_AUTH_BASE}/${endpoint}`, {
       method: "POST",
