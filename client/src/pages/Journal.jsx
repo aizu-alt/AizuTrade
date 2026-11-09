@@ -15,7 +15,7 @@ import {
 } from "../api/trades";
 import ImportExcel from "../components/journal/ImportExcel";
 import { exportExcel, exportPdf } from "../utils/exportTrades";
-import { money, price, time24, toISO, shiftDay, weekStart, monthStart, prettyDate, weekday } from "../utils/format";
+import { money, price, time24, toISO, weekStart, monthStart, prettyDate, weekday } from "../utils/format";
 import "./Journal.css";
 import "./JournalView.css";
 
@@ -68,14 +68,69 @@ function TradeFormModal({ initial, defaultDate, defaultTrader, traders = [], sav
   const coinOptions = [...new Set([...COINS, form.coinSymbol].filter(Boolean))];
   const allTraderOptions = [...new Set([...traders, form.trader].filter(Boolean))];
 
+  const now24 = () => {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  };
+
+  const handleTimeChange = (field) => (e) => {
+    let val = e.target.value;
+    const prev = form[field] || "";
+    if (val.length < prev.length) {
+      setForm((f) => ({ ...f, [field]: val }));
+      return;
+    }
+    val = val.replace(/[^\d:]/g, "").slice(0, 5);
+    if (/^\d{2}$/.test(val)) {
+      val = `${val}:`;
+    }
+    setForm((f) => ({ ...f, [field]: val }));
+  };
+
+  const handleTimeBlur = (field) => () => {
+    let val = (form[field] || "").trim();
+    if (!val) return;
+    if (/^\d{1,2}$/.test(val)) {
+      val = `${val.padStart(2, "0")}:00`;
+    } else if (/^\d{3,4}$/.test(val)) {
+      val = `${val.slice(0, -2).padStart(2, "0")}:${val.slice(-2)}`;
+    } else if (/^\d{1}:([0-5]\d)$/.test(val)) {
+      val = `0${val}`;
+    }
+    const parts = val.split(":");
+    if (parts.length === 2) {
+      let h = parseInt(parts[0], 10);
+      let m = parseInt(parts[1], 10);
+      if (!isNaN(h) && !isNaN(m)) {
+        if (h > 23) h = 23;
+        if (m > 59) m = 59;
+        val = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+      }
+    }
+    setForm((f) => ({ ...f, [field]: val }));
+  };
+
   const submit = (e) => {
     e.preventDefault();
     if (!form.trader) {
       alert("Please select or enter a trader name.");
       return;
     }
+    if (form.timeIn && !/^([01]?\d|2[0-3]):[0-5]\d$/.test(form.timeIn)) {
+      alert("Please enter a valid 24-hour Start Time (00:00 to 23:59), e.g. 14:30");
+      return;
+    }
+    if (form.closingTime && !/^([01]?\d|2[0-3]):[0-5]\d$/.test(form.closingTime)) {
+      alert("Please enter a valid 24-hour Closing Time (00:00 to 23:59), e.g. 16:45");
+      return;
+    }
+    const normTimeIn = form.timeIn ? form.timeIn.padStart(5, "0") : "";
+    const normClosingTime = form.closingTime ? form.closingTime.padStart(5, "0") : "";
+
     onSave({
       ...form,
+      timeIn: normTimeIn,
+      closingTime: normClosingTime,
       qty: Number(form.qty || 9999),
       entryPrice: Number(form.entryPrice),
       target: Number(form.target),
@@ -227,8 +282,29 @@ function TradeFormModal({ initial, defaultDate, defaultTrader, traders = [], sav
                   ))}
                 </div>
               </div>
-              <div className="jr-field"><label>Time in</label>
-                <input type="time" step="60" required value={form.timeIn} onChange={set("timeIn")} /></div>
+              <div className="jr-field">
+                <div className="jr-time-label-row">
+                  <label>Start Time (24h)</label>
+                  <button
+                    type="button"
+                    className="jr-time-now-btn"
+                    onClick={() => setForm((f) => ({ ...f, timeIn: now24() }))}
+                    title="Set current 24-hour time"
+                  >
+                    Now
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  placeholder="HH:MM (e.g. 14:30)"
+                  maxLength={5}
+                  required
+                  value={form.timeIn}
+                  onChange={handleTimeChange("timeIn")}
+                  onBlur={handleTimeBlur("timeIn")}
+                  autoComplete="off"
+                />
+              </div>
               <div className="jr-field"><label>Qty</label>
                 <input type="number" step="any" required value={form.qty} onChange={set("qty")} /></div>
               <div className="jr-field"><label>Entry price ($)</label>
@@ -240,8 +316,28 @@ function TradeFormModal({ initial, defaultDate, defaultTrader, traders = [], sav
                   <option value="open">Open</option><option value="win">Win</option>
                   <option value="loss">Loss</option><option value="breakeven">Breakeven</option>
                 </select></div>
-              <div className="jr-field"><label>Closing time</label>
-                <input type="time" value={form.closingTime} onChange={set("closingTime")} /></div>
+              <div className="jr-field">
+                <div className="jr-time-label-row">
+                  <label>Closing Time (24h)</label>
+                  <button
+                    type="button"
+                    className="jr-time-now-btn"
+                    onClick={() => setForm((f) => ({ ...f, closingTime: now24() }))}
+                    title="Set current 24-hour time"
+                  >
+                    Now
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  placeholder="HH:MM (e.g. 16:45)"
+                  maxLength={5}
+                  value={form.closingTime}
+                  onChange={handleTimeChange("closingTime")}
+                  onBlur={handleTimeBlur("closingTime")}
+                  autoComplete="off"
+                />
+              </div>
               <div className="jr-field"><label>Amount ($, use - for loss)</label>
                 <input type="number" step="any" value={form.amount} onChange={set("amount")} /></div>
               <div className="jr-field"><label>Trades</label>
@@ -423,13 +519,13 @@ export default function Journal({ formOpen, setFormOpen }) {
   const preset = (key) => {
     if (key === "all") { setFrom(""); setTo(""); }
     if (key === "today") { setFrom(today); setTo(today); }
-    if (key === "week") { setFrom(shiftDay(today, -7)); setTo(today); }
+    if (key === "week") { setFrom(weekStart(today)); setTo(today); }
     if (key === "month") { setFrom(monthStart(today)); setTo(today); }
   };
   const activePreset =
     !from && !to ? "all"
     : from === today && to === today ? "today"
-    : (from === shiftDay(today, -7) || from === shiftDay(today, -6) || from === weekStart(today)) && to === today ? "week"
+    : from === weekStart(today) && to === today ? "week"
     : from === monthStart(today) && to === today ? "month" : "";
 
   const toggleGroup = (date) =>
