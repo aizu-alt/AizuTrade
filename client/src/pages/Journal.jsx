@@ -646,48 +646,13 @@ export default function Journal({ formOpen, setFormOpen }) {
 
         <button
           type="button"
+          className="jr-bin-btn"
           onClick={() => window.dispatchEvent(new Event("recyclebin:open"))}
           title="Open Recycle Bin"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 7,
-            padding: "10px 16px",
-            borderRadius: 12,
-            background: "var(--surface-card)",
-            border: "1px solid var(--line)",
-            color: "var(--text)",
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: "pointer",
-            boxShadow: "var(--shadow-sm)",
-            transition: "all 0.15s ease",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = "var(--red)";
-            e.currentTarget.style.color = "var(--red)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = "var(--line)";
-            e.currentTarget.style.color = "var(--text)";
-          }}
         >
           <Trash2 size={16} color="var(--red)" />
           <span>Recycle Bin</span>
-          {binCount > 0 && (
-            <span
-              style={{
-                padding: "2px 8px",
-                borderRadius: 999,
-                fontSize: 11,
-                fontWeight: 700,
-                background: "rgba(244, 63, 94, 0.18)",
-                color: "var(--red)",
-              }}
-            >
-              {binCount}
-            </span>
-          )}
+          {binCount > 0 && <span className="jr-bin-badge">{binCount}</span>}
         </button>
 
         <button onClick={() => setFormOpen(true)} className="jr-add-btn"><Plus size={18} /> Add Trade</button>
@@ -806,39 +771,87 @@ export default function Journal({ formOpen, setFormOpen }) {
                 </header>
 
                 {!folded && (
-                  <div className="jr-table-wrap">
-                    <table className="jr-table">
-                      <thead>
-                        <tr>
-                          {["Trader", "Coin", "Side", "Time in", "Qty", "Entry Price", "Target", "Result", "Closing Time", "Net amount", "Trades", "Remarks", ""].map((h, i) => <th key={i}>{h}</th>)}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {g.items.map((t) => (
-                          <tr key={t.id}>
-                            <td className="jv-trader">{t.trader}</td>
-                            <td><div className="jr-coin">{t.coinSymbol}</div></td>
-                            <td><SidePill side={t.side} /></td>
-                            <td>{time24(t.timeIn)}</td>
-                            <td>{t.qty.toLocaleString("en-IN")}</td>
-                            <td>{price(t.entryPrice)}</td>
-                            <td>{t.target ? price(t.target) : "--"}</td>
-                            <td><ResultBadge result={t.result} /></td>
-                            <td>{time24(t.closingTime)}</td>
-                            <td className={`jr-amount ${t.amount > 0 ? "pos" : t.amount < 0 ? "neg" : "zero"}`}>{money(t.amount)}</td>
-                            <td>{t.tradesCount}</td>
-                            <td className="jr-remarks" title={t.remarks}>{t.remarks}</td>
-                            <td>
-                              <div className="jr-actions">
-                                <button onClick={() => setEditing(t)} aria-label="Edit trade" className="jr-action edit"><Pencil size={16} /></button>
-                                <button onClick={() => deleteTrade(t.id)} aria-label="Delete trade" className="jr-action delete"><Trash2 size={16} /></button>
-                              </div>
-                            </td>
+                  <>
+                    <div className="jr-table-wrap">
+                      <table className="jr-table">
+                        <thead>
+                          <tr>
+                            {["Trader", "Coin", "Side", "Time in", "Qty", "Entry Price", "Target", "Result", "Closing Time", "Net amount", "Trades", "Remarks", ""].map((h, i) => <th key={i}>{h}</th>)}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody>
+                          {g.items.map((t) => (
+                            <tr key={t.id}>
+                              <td className="jv-trader">{t.trader}</td>
+                              <td><div className="jr-coin">{t.coinSymbol}</div></td>
+                              <td><SidePill side={t.side} /></td>
+                              <td>{time24(t.timeIn)}</td>
+                              <td>{t.qty.toLocaleString("en-IN")}</td>
+                              <td>{price(t.entryPrice)}</td>
+                              <td>{t.target ? price(t.target) : "--"}</td>
+                              <td><ResultBadge result={t.result} /></td>
+                              <td>{time24(t.closingTime)}</td>
+                              <td className={`jr-amount ${t.amount > 0 ? "pos" : t.amount < 0 ? "neg" : "zero"}`}>{money(t.amount)}</td>
+                              <td>{t.tradesCount}</td>
+                              <td className="jr-remarks" title={t.remarks}>{t.remarks}</td>
+                              <td>
+                                <div className="jr-actions">
+                                  <button onClick={() => setEditing(t)} aria-label="Edit trade" className="jr-action edit"><Pencil size={16} /></button>
+                                  <button onClick={() => deleteTrade(t.id)} aria-label="Delete trade" className="jr-action delete"><Trash2 size={16} /></button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="jr-mobile-list">
+                      {g.items.map((t) => (
+                        <article key={t.id} className="jr-mcard">
+                          <div className="jr-mcard-top">
+                            <div className="jr-mcard-tags">
+                              <span className="jr-coin">{t.coinSymbol}</span>
+                              <SidePill side={t.side} />
+                              <ResultBadge result={t.result} />
+                            </div>
+                            <span className={`jr-amount ${t.amount > 0 ? "pos" : t.amount < 0 ? "neg" : "zero"}`}>
+                              {money(t.amount)}
+                            </span>
+                          </div>
+
+                          <div className="jr-mcard-meta">
+                            <span className="jv-trader">{t.trader}</span>
+                            <span>{time24(t.timeIn)} → {time24(t.closingTime)}</span>
+                            <span>{t.tradesCount} trade{t.tradesCount === 1 ? "" : "s"}</span>
+                          </div>
+
+                          <div className="jr-mcard-grid">
+                            <div>
+                              <small>Qty</small>
+                              <b>{t.qty.toLocaleString("en-IN")}</b>
+                            </div>
+                            <div>
+                              <small>Entry</small>
+                              <b>{price(t.entryPrice)}</b>
+                            </div>
+                            <div>
+                              <small>Target</small>
+                              <b>{t.target ? price(t.target) : "--"}</b>
+                            </div>
+                          </div>
+
+                          <div className="jr-mcard-foot">
+                            <p className="jr-mcard-remarks">{t.remarks || "No remarks"}</p>
+                            <div className="jr-actions">
+                              <button onClick={() => setEditing(t)} aria-label="Edit trade" className="jr-action edit"><Pencil size={16} /></button>
+                              <button onClick={() => deleteTrade(t.id)} aria-label="Delete trade" className="jr-action delete"><Trash2 size={16} /></button>
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </>
                 )}
               </section>
             );

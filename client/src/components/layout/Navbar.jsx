@@ -96,9 +96,11 @@ export default function AizuTradeNavbar() {
       display: "flex",
       alignItems: "center",
       justifyContent: "space-between",
-      gap: 16,
+      gap: 12,
       minHeight: isMobile ? 60 : 68,
-      padding: "0 clamp(16px, 5vw, 60px)",
+      padding: "0 clamp(14px, 4vw, 60px)",
+      maxWidth: 1600,
+      margin: "0 auto",
     },
     brand: {
       display: "flex",
@@ -175,7 +177,7 @@ export default function AizuTradeNavbar() {
       position: "absolute",
       top: "calc(100% + 10px)",
       right: 0,
-      width: 290,
+      width: "min(290px, calc(100vw - 24px))",
       padding: "14px",
       borderRadius: "var(--radius)",
       background: "var(--surface-card)",
@@ -255,7 +257,10 @@ export default function AizuTradeNavbar() {
                 type="button"
                 aria-label="User profile menu"
                 aria-expanded={open}
-                onClick={() => setOpen((o) => !o)}
+                onClick={() => {
+                  setMenuOpen(false);
+                  setOpen((o) => !o);
+                }}
                 style={navStyles.profileBtn}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.background = "var(--surface-hover)";
@@ -637,7 +642,11 @@ export default function AizuTradeNavbar() {
               <button
                 type="button"
                 aria-label="Toggle menu"
-                onClick={() => setMenuOpen((m) => !m)}
+                aria-expanded={menuOpen}
+                onClick={() => {
+                  setOpen(false);
+                  setMenuOpen((m) => !m);
+                }}
                 style={{
                   width: 38,
                   height: 38,

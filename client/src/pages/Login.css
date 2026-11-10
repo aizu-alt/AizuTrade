@@ -283,3 +283,25 @@
   overflow: hidden;
   flex-shrink: 0;
 }
+
+@media (max-width: 480px) {
+  .lg-page {
+    padding: 16px 12px;
+  }
+  .lg-card {
+    padding: 28px 18px;
+  }
+  .lg-card::before {
+    margin: -28px -18px 24px;
+  }
+  .lg-title {
+    font-size: 21px;
+  }
+  .lg-field input {
+    font-size: 16px;
+  }
+  .lg-code {
+    font-size: 22px !important;
+    letter-spacing: 6px;
+  }
+}
