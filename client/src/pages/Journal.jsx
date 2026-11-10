@@ -13,11 +13,11 @@ import {
   bulkCreateTrades,
   getRecycleBinTrades,
 } from "../api/trades";
-import ImportExcel from "../components/journal/ImportExcel";
+import ImportExcel from "../components/Journal/ImportExcel";
 import { exportExcel, exportPdf } from "../utils/exportTrades";
-import { money, price, time24, toISO, weekStart, monthStart, prettyDate, weekday } from "../utils/format";
+import { money, price, time24, toISO, shiftDay, weekStart, monthStart, prettyDate, weekday } from "../utils/format";
 import "./Journal.css";
-import "./JournalView.css";
+import "./Journalview.css";
 
 /* coins shown in the Coin symbol dropdown of the form */
 const COINS = ["PENGU", "ETA"];
@@ -519,13 +519,13 @@ export default function Journal({ formOpen, setFormOpen }) {
   const preset = (key) => {
     if (key === "all") { setFrom(""); setTo(""); }
     if (key === "today") { setFrom(today); setTo(today); }
-    if (key === "week") { setFrom(weekStart(today)); setTo(today); }
+    if (key === "week") { setFrom(shiftDay(today, -7)); setTo(today); }
     if (key === "month") { setFrom(monthStart(today)); setTo(today); }
   };
   const activePreset =
     !from && !to ? "all"
     : from === today && to === today ? "today"
-    : from === weekStart(today) && to === today ? "week"
+    : (from === shiftDay(today, -7) || from === shiftDay(today, -6) || from === weekStart(today)) && to === today ? "week"
     : from === monthStart(today) && to === today ? "month" : "";
 
   const toggleGroup = (date) =>
