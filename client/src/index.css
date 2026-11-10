@@ -39,26 +39,26 @@
   --amber-bg:        #fef3c7;
   --amber-text:      #92400e;
 
-  /* === Surfaces (Light — white/lavender tint) === */
-  --bg-gradient:     linear-gradient(145deg, #f5f4ff 0%, #eef0ff 50%, #f9f4ff 100%);
-  --surface:         #ffffff;
+  /* === Surfaces (Light — vivid purple + blue) === */
+  --bg-gradient:     linear-gradient(145deg, #e8e4ff 0%, #dde5ff 45%, #ead9ff 100%);
+  --surface:         #f5f3ff;
   --surface-card:    #ffffff;
-  --surface-subtle:  #f4f3ff;
-  --surface-hover:   #ede9fe;
-  --surface-active:  #ddd6fe;
+  --surface-subtle:  #e8e2ff;
+  --surface-hover:   #d8d0fc;
+  --surface-active:  #c4b5fd;
 
   /* === Typography === */
-  --text:            #0f0a2e;
-  --text-secondary:  #2d1f6e;
-  --muted:           #6b6b9b;
-  --line:            #ddd6fe;
-  --line-light:      #ede9fe;
+  --text:            #1a0a3e;
+  --text-secondary:  #3b1f7e;
+  --muted:           #6a5aaa;
+  --line:            #c4b5fd;
+  --line-light:      #d8d0fc;
 
   /* === Shadows === */
-  --shadow-sm:  0 1px 4px rgba(79, 110, 247, 0.07);
-  --shadow-md:  0 4px 24px -2px rgba(79, 110, 247, 0.12), 0 2px 8px -1px rgba(0,0,0,0.04);
-  --shadow-lg:  0 16px 48px -4px rgba(79, 110, 247, 0.18), 0 4px 16px rgba(155, 109, 255, 0.1);
-  --modal-overlay: rgba(15, 10, 46, 0.6);
+  --shadow-sm:  0 1px 4px rgba(79, 110, 247, 0.12);
+  --shadow-md:  0 4px 24px -2px rgba(79, 110, 247, 0.18), 0 2px 8px -1px rgba(100, 60, 200, 0.08);
+  --shadow-lg:  0 16px 48px -4px rgba(79, 110, 247, 0.25), 0 4px 16px rgba(155, 109, 255, 0.18);
+  --modal-overlay: rgba(20, 10, 60, 0.65);
 
   --radius-sm: 8px;
   --radius:    14px;

@@ -33,7 +33,6 @@ export function stats(list) {
   return {
     total: list.length, wins, losses, open, net,
     winRate: wins + losses ? Math.round((wins / (wins + losses)) * 100) : 0,
-    profitFactor: grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : null,
   };
 }
 
@@ -46,7 +45,6 @@ const groupBy = (list, keyFn) => {
   return [...map.entries()].map(([name, rows]) => ({ name, rows, ...stats(rows) }));
 };
 
-const pfText = (pf) => (pf === null ? "--" : pf === Infinity ? "∞" : pf.toFixed(2));
 const tone = (n) => (n > 0 ? "pos" : n < 0 ? "neg" : "");
 
 // one bucket per week (Monday start) or per month
@@ -232,10 +230,6 @@ export function AnalyticsView({ all: raw }) {
           <div className="an-kpis">
             <div className="an-card an-kpi"><span>Net P&amp;L</span><b className={tone(total.net)}>{money(total.net)}</b></div>
             <div className="an-card an-kpi"><span>Win rate</span><b>{total.winRate}%</b><small>{total.wins} wins · {total.losses} losses</small></div>
-            <div className="an-card an-kpi">
-              <span>Profit factor</span>
-              <b className={total.profitFactor === null ? "" : total.profitFactor >= 1 ? "pos" : "neg"}>{pfText(total.profitFactor)}</b>
-            </div>
             <div className="an-card an-kpi"><span>Trades</span><b>{total.total}</b><small>{allPeriods.length} {unit}{allPeriods.length === 1 ? "" : "s"} with trades</small></div>
           </div>
 

@@ -36,7 +36,6 @@ const totals = (list) => {
   return {
     total: list.length, wins, losses, open, net,
     winRate: wins + losses ? Math.round((wins / (wins + losses)) * 100) : 0,
-    profitFactor: grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : null,
   };
 };
 
@@ -745,7 +744,6 @@ export default function Journal({ formOpen, setFormOpen }) {
             <span>Wins: <b className="win">{sum.wins}</b> <span className="jr-winrate">{sum.winRate}% win rate</span></span>
             <span>Losses: <b className="loss">{sum.losses}</b></span>
             <span>Open: <b>{sum.open}</b></span>
-            <span>Profit factor: <b>{sum.profitFactor === null ? "--" : sum.profitFactor === Infinity ? "∞" : sum.profitFactor.toFixed(2)}</b></span>
           </div>
           <div className="jr-net">
             <div className="jr-net-label">Net P&amp;L</div>
