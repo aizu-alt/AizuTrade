@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
 import {
   Users,
-  Key,
   Settings,
   LogOut,
   Moon,
@@ -17,7 +16,6 @@ import {
 import { useAuth } from "../../auth/AuthContext";
 import { useTheme } from "../../theme/ThemeContext";
 import TradersModal from "../modals/TradersModal";
-import UpdatePasswordModal from "../modals/UpdatePasswordModal";
 import SettingsModal from "../modals/SettingsModal";
 import RecycleBinModal from "../modals/RecycleBinModal";
 
@@ -47,7 +45,6 @@ export default function AizuTradeNavbar() {
 
   // Modals state
   const [tradersOpen, setTradersOpen] = useState(false);
-  const [passwordOpen, setPasswordOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [recycleBinOpen, setRecycleBinOpen] = useState(false);
 
@@ -398,40 +395,7 @@ export default function AizuTradeNavbar() {
                           <span>Add &amp; Manage Traders</span>
                         </button>
 
-                        {/* 2. Update Password */}
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => {
-                            setOpen(false);
-                            setPasswordOpen(true);
-                          }}
-                          style={navStyles.menuItem}
-                          onMouseEnter={(e) =>
-                            (e.currentTarget.style.background =
-                              "var(--purple-soft)")
-                          }
-                          onMouseLeave={(e) =>
-                            (e.currentTarget.style.background = "transparent")
-                          }
-                        >
-                          <span
-                            style={{
-                              width: 28,
-                              height: 28,
-                              borderRadius: 8,
-                              background: "var(--purple-soft)",
-                              display: "grid",
-                              placeItems: "center",
-                              flexShrink: 0,
-                            }}
-                          >
-                            <Key size={15} color="var(--purple)" />
-                          </span>
-                          <span>Update Password</span>
-                        </button>
-
-                        {/* 3. Settings */}
+                        {/* 2. Settings */}
                         <button
                           type="button"
                           role="menuitem"
@@ -706,10 +670,6 @@ export default function AizuTradeNavbar() {
         onTraderChange={() => {
           window.dispatchEvent(new Event("traders:updated"));
         }}
-      />
-      <UpdatePasswordModal
-        isOpen={passwordOpen}
-        onClose={() => setPasswordOpen(false)}
       />
       <SettingsModal
         isOpen={settingsOpen}

@@ -1,6 +1,6 @@
 // client/src/auth/AuthContext.jsx
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { getMe, loginRequest, registerRequest } from "../api/authApi";
+import { getMe, loginRequest } from "../api/authApi";
 import { getToken, setToken } from "../api/http";
 
 const AuthContext = createContext(null);
@@ -79,14 +79,6 @@ export function AuthProvider({ children }) {
     return data;
   }, []);
 
-  const register = useCallback(async (name, email, password) => {
-    const data = await registerRequest(name, email, password);
-    setToken(data.token);
-    saveUser(data.user);
-    setUser(data.user);
-    return data;
-  }, []);
-
   const logout = useCallback(() => {
     setToken(null);
     saveUser(null);
@@ -101,7 +93,6 @@ export function AuthProvider({ children }) {
         bootError,
         retry: () => setAttempt((n) => n + 1),
         login,
-        register,
         logout,
       }}
     >

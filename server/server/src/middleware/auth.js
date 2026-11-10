@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
+import { isNeonAdmin } from "../config/neon.js";
 
 const SECRET = process.env.JWT_SECRET;
 if (!SECRET || SECRET.length < 16) {
@@ -13,9 +14,9 @@ export const authSecret = SECRET;
 
 // the token remembers the user and their tokenVersion
 export const signToken = (user) =>
-  jwt.sign({ sub: user.id, tv: user.tokenVersion ?? 0 }, SECRET, { expiresIn: "7d" });
+  jwt.sign({ sub: user.id, tv: user.tokenVersion ?? 0, role: user.role || "user" }, SECRET, { expiresIn: "7d" });
 
-// blocks every request that does not carry a valid login token
+// blocks every request that does not carry a valid admin login token
 export async function requireAuth(req, res, next) {
   try {
     const header = req.headers.authorization || "";
@@ -36,9 +37,32 @@ export async function requireAuth(req, res, next) {
       return res.status(401).json({ message: "Your password was changed. Please log in again." });
     }
 
+    // Verify user is still an admin in Neon Auth
+    const neonIsAdmin = await isNeonAdmin(user.email);
+    if (!neonIsAdmin) {
+      if (user.role !== "user") {
+        user.role = "user";
+        await user.save();
+      }
+      return res.status(403).json({ message: "Access denied. Only the admin user can access this app." });
+    }
+
+    if (user.role !== "admin") {
+      user.role = "admin";
+      await user.save();
+    }
+
     req.user = user;
     next();
   } catch (err) {
     next(err);
   }
+}
+
+// Explicitly ensures only the admin user can create, edit, or delete data
+export function requireAdmin(req, res, next) {
+  if (!req.user || req.user.role !== "admin") {
+    return res.status(403).json({ message: "Admin access required. Only the admin can edit or delete data." });
+  }
+  next();
 }

@@ -8,7 +8,6 @@ import {
   me,
   forgotPassword,
   resetPassword,
-  updatePassword,
   sendVerification,
   verifyEmail,
   verifyEmailOtp,
@@ -29,7 +28,6 @@ router.post("/login", limit(20, "Too many attempts. Please try again in 15 minut
 router.post("/register", limit(10, "Too many registration attempts. Please try again later."), h(register));
 router.post("/forgot", limit(5, "Too many reset requests. Please try again in 15 minutes."), h(forgotPassword));
 router.post("/reset", limit(10, "Too many attempts. Please try again in 15 minutes."), h(resetPassword));
-router.post("/update-password", requireAuth, h(updatePassword));
 router.post("/send-verification", requireAuth, h(sendVerification));
 router.post("/verify-email-otp", requireAuth, h(verifyEmailOtp));
 router.get("/verify-email", h(verifyEmail));

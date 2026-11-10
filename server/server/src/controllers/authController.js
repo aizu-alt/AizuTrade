@@ -2,6 +2,7 @@ import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import User from "../models/User.js";
 import { signToken } from "../middleware/auth.js";
+import { getNeonUserByEmail } from "../config/neon.js";
 
 const DUMMY_HASH = bcrypt.hashSync("not-a-real-password", 12);
 const RESEND_SECONDS = 60;
@@ -17,15 +18,14 @@ const clean = (body = {}) => ({
   name: String(body.name ?? "").trim(),
   email: String(body.email ?? "").trim().toLowerCase(),
   password: String(body.password ?? ""),
-  currentPassword: String(body.currentPassword ?? ""),
-  newPassword: String(body.newPassword ?? ""),
   code: String(body.code ?? "").replace(/\D/g, ""),
-  token: String(body.token ?? "").trim(),
 });
 
 // Helper: Call Neon Auth API
 async function callNeonAuth(endpoint, body = {}, headers = {}) {
-  if (!NEON_AUTH_BASE) return { ok: false, status: 503, data: { message: "Neon Auth is not configured on the server." } };
+  if (!NEON_AUTH_BASE) {
+    return { ok: false, status: 503, data: { message: "Neon Auth is not configured on the server." } };
+  }
   try {
     const res = await fetch(`${NEON_AUTH_BASE}/${endpoint}`, {
       method: "POST",
@@ -47,51 +47,19 @@ async function callNeonAuth(endpoint, body = {}, headers = {}) {
   }
 }
 
-// POST /api/auth/register  { name, email, password }
-export async function register(req, res) {
-  const { name, email, password } = clean(req.body);
-  if (!email || !password) return res.status(400).json({ message: "Email and password are required." });
-  if (password.length < 8) return res.status(400).json({ message: "Password must be at least 8 characters." });
-  if (!NEON_AUTH_BASE) {
-    return res.status(503).json({ message: "NEON_AUTH_BASE_URL is not configured on the server." });
+// Helper: Ensures only the user with role === 'admin' in Neon Auth can access the app
+async function requireNeonAdminRecord(email) {
+  const neonRecord = await getNeonUserByEmail(email);
+  if (!neonRecord || neonRecord.role !== "admin") {
+    return null;
   }
+  return neonRecord;
+}
 
-  const existing = await User.findOne({ email });
-  if (existing) return res.status(400).json({ message: "An account with this email already exists." });
-
-  // Sign up via Neon Auth (Neon automatically sends verification OTP email)
-  const neon = await callNeonAuth("sign-up/email", {
-    email,
-    password,
-    name: name || email.split("@")[0],
-  });
-
-  if (!neon.ok) {
-    const status = neon.status >= 400 && neon.status < 500 ? neon.status : 502;
-    return res.status(status).json({
-      message: neon.data?.message || "Could not create account in Neon Auth.",
-    });
-  }
-
-  // Create local user in MongoDB linked by email
-  const user = await User.create({
-    name: name || neon.data?.user?.name || email.split("@")[0],
-    email,
-    passwordHash: await bcrypt.hash(password, 12),
-    emailVerified: Boolean(neon.data?.user?.emailVerified),
-  });
-
-  const token = signToken(user);
-  res.status(201).json({
-    token,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      emailVerified: Boolean(user.emailVerified),
-      neonSynced: true,
-    },
-    message: "Account created successfully! Check your email for the verification code.",
+// POST /api/auth/register  (Disabled — single-admin app only)
+export async function register(_req, res) {
+  return res.status(403).json({
+    message: "Registration is disabled. Only the admin user can access this app.",
   });
 }
 
@@ -100,27 +68,39 @@ export async function login(req, res) {
   const { email, password } = clean(req.body);
   if (!email || !password) return res.status(400).json({ message: "Email and password are required." });
 
-  // 1. Try Neon Auth
-  let neonUser = null;
-  const neon = await callNeonAuth("sign-in/email", { email, password });
-  if (neon.ok && neon.data?.user) {
-    neonUser = neon.data.user;
+  // 1. Only allow the Neon admin user to log in
+  const neonRecord = await requireNeonAdminRecord(email);
+  if (!neonRecord) {
+    return res.status(403).json({
+      message: "Access denied. Only the admin user can log in.",
+    });
   }
 
-  // 2. Check Local MongoDB user
+  // 2. Authenticate via Neon Auth
+  const neon = await callNeonAuth("sign-in/email", { email, password });
   let user = await User.findOne({ email });
 
-  if (neonUser) {
+  if (neon.ok && neon.data?.user) {
+    const neonUser = neon.data.user;
     if (!user) {
       user = await User.create({
-        name: neonUser.name || email.split("@")[0],
+        name: neonUser.name || neonRecord.name || email.split("@")[0],
         email,
         passwordHash: await bcrypt.hash(password, 12),
-        emailVerified: Boolean(neonUser.emailVerified),
+        role: "admin",
+        emailVerified: Boolean(neonUser.emailVerified || neonRecord.emailVerified),
       });
-    } else if (Boolean(neonUser.emailVerified) && !user.emailVerified) {
-      user.emailVerified = true;
-      await user.save();
+    } else {
+      let changed = false;
+      if (user.role !== "admin") {
+        user.role = "admin";
+        changed = true;
+      }
+      if ((neonUser.emailVerified || neonRecord.emailVerified) && !user.emailVerified) {
+        user.emailVerified = true;
+        changed = true;
+      }
+      if (changed) await user.save();
     }
 
     return res.json({
@@ -129,21 +109,21 @@ export async function login(req, res) {
         id: user.id,
         name: user.name,
         email: user.email,
-        emailVerified: Boolean(neonUser.emailVerified || user.emailVerified),
+        role: "admin",
+        emailVerified: Boolean(user.emailVerified),
         neonUser: true,
       },
     });
   }
 
-  // Fallback to local DB check for legacy users, then sync to Neon Auth
+  // Fallback check against local MongoDB hash only if user is the verified Neon admin
   const ok = await bcrypt.compare(password, user ? user.passwordHash : DUMMY_HASH);
   if (!user || !ok) {
     return res.status(401).json({ message: "Invalid email or password." });
   }
 
-  const sync = await callNeonAuth("sign-up/email", { email, password, name: user.name });
-  if (sync.ok && sync.data?.user?.emailVerified && !user.emailVerified) {
-    user.emailVerified = true;
+  if (user.role !== "admin") {
+    user.role = "admin";
     await user.save();
   }
 
@@ -153,7 +133,8 @@ export async function login(req, res) {
       id: user.id,
       name: user.name,
       email: user.email,
-      emailVerified: Boolean(user.emailVerified),
+      role: "admin",
+      emailVerified: Boolean(user.emailVerified || neonRecord.emailVerified),
     },
   });
 }
@@ -169,6 +150,13 @@ export async function forgotPassword(req, res) {
   if (!email) return res.status(400).json({ message: "Please provide your email address." });
   if (!NEON_AUTH_BASE) {
     return res.status(503).json({ message: "NEON_AUTH_BASE_URL is not configured on the server." });
+  }
+
+  const neonRecord = await requireNeonAdminRecord(email);
+  if (!neonRecord) {
+    return res.status(403).json({
+      message: "Access denied. Only the admin account can reset its password.",
+    });
   }
 
   const user = await User.findOne({
@@ -188,7 +176,6 @@ export async function forgotPassword(req, res) {
     await user.save();
   }
 
-  // Send 6-digit password reset OTP via Neon Auth only
   const neonOtp = await callNeonAuth("email-otp/send-verification-otp", {
     email,
     type: "forget-password",
@@ -211,7 +198,7 @@ export async function forgotPassword(req, res) {
 // POST /api/auth/reset  { email, code, password }
 export async function resetPassword(req, res) {
   const { email, code, password } = clean(req.body);
-  const newPass = password || clean(req.body).newPassword;
+  const newPass = password || String(req.body?.newPassword ?? "");
   if (!email) return res.status(400).json({ message: "Email is required." });
   if (!code || code.length !== 6) {
     return res.status(400).json({ message: "Enter the 6-digit verification code." });
@@ -221,6 +208,13 @@ export async function resetPassword(req, res) {
   }
   if (!NEON_AUTH_BASE) {
     return res.status(503).json({ message: "NEON_AUTH_BASE_URL is not configured on the server." });
+  }
+
+  const neonRecord = await requireNeonAdminRecord(email);
+  if (!neonRecord) {
+    return res.status(403).json({
+      message: "Access denied. Only the admin account can reset its password.",
+    });
   }
 
   const neon = await callNeonAuth("email-otp/reset-password", {
@@ -237,7 +231,6 @@ export async function resetPassword(req, res) {
     });
   }
 
-  // Keep MongoDB user password hash in sync
   let user = await User.findOne({
     $or: [
       { email },
@@ -248,6 +241,7 @@ export async function resetPassword(req, res) {
   const passwordHash = await bcrypt.hash(newPass, 12);
   if (user) {
     user.passwordHash = passwordHash;
+    user.role = "admin";
     user.resetCodeHash = "";
     user.resetCodeExpires = null;
     user.resetAttempts = 0;
@@ -255,49 +249,15 @@ export async function resetPassword(req, res) {
     await user.save();
   } else {
     await User.create({
-      name: email.split("@")[0],
+      name: neonRecord.name || email.split("@")[0],
       email,
       passwordHash,
+      role: "admin",
+      emailVerified: Boolean(neonRecord.emailVerified),
     });
   }
 
   res.json({ message: "Password updated successfully! You can now log in." });
-}
-
-// POST /api/auth/update-password  { currentPassword, newPassword }  (needs requireAuth)
-export async function updatePassword(req, res) {
-  const { currentPassword, newPassword } = clean(req.body);
-  if (!currentPassword || !newPassword) {
-    return res.status(400).json({ message: "Current password and new password are required." });
-  }
-  if (newPassword.length < 8) {
-    return res.status(400).json({ message: "New password must be at least 8 characters." });
-  }
-
-  const user = await User.findById(req.user.id);
-  if (!user) return res.status(404).json({ message: "User not found." });
-
-  const ok = await bcrypt.compare(currentPassword, user.passwordHash);
-  if (!ok) return res.status(400).json({ message: "Current password is incorrect." });
-
-  user.passwordHash = await bcrypt.hash(newPassword, 12);
-  user.tokenVersion = (user.tokenVersion || 0) + 1;
-  await user.save();
-
-  // Sync with Neon Auth
-  callNeonAuth("sign-in/email", { email: user.email, password: currentPassword })
-    .then(async (r) => {
-      if (r.ok && r.data?.token) {
-        await callNeonAuth(
-          "change-password",
-          { currentPassword, newPassword, revokeOtherSessions: true },
-          { Authorization: `Bearer ${r.data.token}` }
-        );
-      }
-    })
-    .catch(() => {});
-
-  res.json({ message: "Password updated successfully." });
 }
 
 // POST /api/auth/send-verification  (needs requireAuth) - Sends verification OTP via Neon Auth only
@@ -364,6 +324,7 @@ export async function verifyEmailOtp(req, res) {
       id: user.id,
       name: user.name,
       email: user.email,
+      role: user.role,
       emailVerified: true,
     },
   });
@@ -399,6 +360,7 @@ export async function verifyEmail(req, res) {
       id: user.id,
       name: user.name,
       email: user.email,
+      role: user.role,
       emailVerified: true,
     },
   });
