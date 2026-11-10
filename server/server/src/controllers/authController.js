@@ -1,14 +1,10 @@
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import User from "../models/User.js";
-import { signToken, authSecret } from "../middleware/auth.js";
-import { sendResetCode, sendVerificationLink } from "../utils/mailer.js";
+import { signToken } from "../middleware/auth.js";
 
 const DUMMY_HASH = bcrypt.hashSync("not-a-real-password", 12);
-const CODE_MINUTES = 10;
-const MAX_ATTEMPTS = 5;
 const RESEND_SECONDS = 60;
-const SAME_ANSWER = { message: "If that email has an account, instructions have been sent to it." };
 
 const NEON_AUTH_BASE = (process.env.NEON_AUTH_BASE_URL || "").trim().replace(/\/+$/, "");
 if (!NEON_AUTH_BASE) {
@@ -27,12 +23,9 @@ const clean = (body = {}) => ({
   token: String(body.token ?? "").trim(),
 });
 
-const hashCode = (userId, code) =>
-  crypto.createHmac("sha256", authSecret).update(`${userId}:${code}`).digest("hex");
-
 // Helper: Call Neon Auth API
 async function callNeonAuth(endpoint, body = {}, headers = {}) {
-  if (!NEON_AUTH_BASE) return { ok: false, status: 503, error: "Neon Auth not configured" };
+  if (!NEON_AUTH_BASE) return { ok: false, status: 503, data: { message: "Neon Auth is not configured on the server." } };
   try {
     const res = await fetch(`${NEON_AUTH_BASE}/${endpoint}`, {
       method: "POST",
@@ -50,7 +43,7 @@ async function callNeonAuth(endpoint, body = {}, headers = {}) {
     return { ok: res.ok, status: res.status, data };
   } catch (err) {
     console.warn(`[Neon Auth] ${endpoint} request failed:`, err.message);
-    return { ok: false, status: 500, error: err.message };
+    return { ok: false, status: 502, data: { message: err.message } };
   }
 }
 
@@ -59,23 +52,33 @@ export async function register(req, res) {
   const { name, email, password } = clean(req.body);
   if (!email || !password) return res.status(400).json({ message: "Email and password are required." });
   if (password.length < 8) return res.status(400).json({ message: "Password must be at least 8 characters." });
+  if (!NEON_AUTH_BASE) {
+    return res.status(503).json({ message: "NEON_AUTH_BASE_URL is not configured on the server." });
+  }
 
-  // Check if exists locally
   const existing = await User.findOne({ email });
   if (existing) return res.status(400).json({ message: "An account with this email already exists." });
 
-  // Call Neon Auth sign up
+  // Sign up via Neon Auth (Neon automatically sends verification OTP email)
   const neon = await callNeonAuth("sign-up/email", {
     email,
     password,
     name: name || email.split("@")[0],
   });
 
-  // Create local user in MongoDB
+  if (!neon.ok) {
+    const status = neon.status >= 400 && neon.status < 500 ? neon.status : 502;
+    return res.status(status).json({
+      message: neon.data?.message || "Could not create account in Neon Auth.",
+    });
+  }
+
+  // Create local user in MongoDB linked by email
   const user = await User.create({
-    name: name || (neon.ok && neon.data.user?.name) || email.split("@")[0],
+    name: name || neon.data?.user?.name || email.split("@")[0],
     email,
     passwordHash: await bcrypt.hash(password, 12),
+    emailVerified: Boolean(neon.data?.user?.emailVerified),
   });
 
   const token = signToken(user);
@@ -85,10 +88,10 @@ export async function register(req, res) {
       id: user.id,
       name: user.name,
       email: user.email,
-      emailVerified: Boolean(neon.data?.user?.emailVerified),
-      neonSynced: neon.ok,
+      emailVerified: Boolean(user.emailVerified),
+      neonSynced: true,
     },
-    message: "Account created successfully! Check your email for verification.",
+    message: "Account created successfully! Check your email for the verification code.",
   });
 }
 
@@ -108,34 +111,41 @@ export async function login(req, res) {
   let user = await User.findOne({ email });
 
   if (neonUser) {
-    // If authenticated via Neon but not in local DB, create local record
     if (!user) {
       user = await User.create({
         name: neonUser.name || email.split("@")[0],
         email,
         passwordHash: await bcrypt.hash(password, 12),
+        emailVerified: Boolean(neonUser.emailVerified),
       });
+    } else if (Boolean(neonUser.emailVerified) && !user.emailVerified) {
+      user.emailVerified = true;
+      await user.save();
     }
+
     return res.json({
       token: signToken(user),
       user: {
         id: user.id,
         name: user.name,
         email: user.email,
-        emailVerified: Boolean(neonUser.emailVerified),
+        emailVerified: Boolean(neonUser.emailVerified || user.emailVerified),
         neonUser: true,
       },
     });
   }
 
-  // Fallback to local DB check
+  // Fallback to local DB check for legacy users, then sync to Neon Auth
   const ok = await bcrypt.compare(password, user ? user.passwordHash : DUMMY_HASH);
   if (!user || !ok) {
     return res.status(401).json({ message: "Invalid email or password." });
   }
 
-  // If local user authenticated, try to sync to Neon Auth in background
-  callNeonAuth("sign-up/email", { email, password, name: user.name }).catch(() => {});
+  const sync = await callNeonAuth("sign-up/email", { email, password, name: user.name });
+  if (sync.ok && sync.data?.user?.emailVerified && !user.emailVerified) {
+    user.emailVerified = true;
+    await user.save();
+  }
 
   res.json({
     token: signToken(user),
@@ -143,7 +153,7 @@ export async function login(req, res) {
       id: user.id,
       name: user.name,
       email: user.email,
-      emailVerified: false,
+      emailVerified: Boolean(user.emailVerified),
     },
   });
 }
@@ -156,68 +166,45 @@ export function me(req, res) {
 // POST /api/auth/forgot  { email }
 export async function forgotPassword(req, res) {
   const { email } = clean(req.body);
-  if (!email) return res.json({ message: "Please provide your email address." });
+  if (!email) return res.status(400).json({ message: "Please provide your email address." });
+  if (!NEON_AUTH_BASE) {
+    return res.status(503).json({ message: "NEON_AUTH_BASE_URL is not configured on the server." });
+  }
 
-  let user = await User.findOne({
+  const user = await User.findOne({
     $or: [
       { email },
-      { email: email.toLowerCase() },
-      { email: { $regex: new RegExp(`^${email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") } }
-    ]
+      { email: { $regex: new RegExp(`^${email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") } },
+    ],
   });
 
-  if (!user) {
-    // If not found in MongoDB, auto-create the user record so they can reset their password
-    user = await User.create({
-      name: email.split("@")[0],
-      email: email.toLowerCase(),
-      passwordHash: await bcrypt.hash(crypto.randomBytes(16).toString("hex"), 12),
-    });
+  if (user) {
+    const waited = user.resetSentAt ? (Date.now() - user.resetSentAt.getTime()) / 1000 : Infinity;
+    if (waited < RESEND_SECONDS) {
+      const left = Math.ceil(RESEND_SECONDS - waited);
+      return res.status(429).json({ message: `Please wait ${left}s before requesting a new code.` });
+    }
+    user.resetSentAt = new Date();
+    await user.save();
   }
 
-  const waited = user.resetSentAt ? (Date.now() - user.resetSentAt.getTime()) / 1000 : Infinity;
-  if (waited < RESEND_SECONDS) {
-    const left = Math.ceil(RESEND_SECONDS - waited);
-    return res.status(429).json({ message: `Please wait ${left}s before requesting a new code.` });
-  }
+  // Send 6-digit password reset OTP via Neon Auth only
+  const neonOtp = await callNeonAuth("email-otp/send-verification-otp", {
+    email,
+    type: "forget-password",
+  });
 
-  const code = String(crypto.randomInt(100000, 1000000));
-  user.resetCodeHash = hashCode(user.id, code);
-  user.resetCodeExpires = new Date(Date.now() + CODE_MINUTES * 60 * 1000);
-  user.resetAttempts = 0;
-  user.resetSentAt = new Date();
-  await user.save();
-
-  console.log(`\n======================================================`);
-  console.log(`🔐 [AIZU TRADE] FORGOT PASSWORD 6-DIGIT CODE: ${code}`);
-  console.log(`📧 For account: ${user.email} (expires in 10 minutes)`);
-  console.log(`======================================================\n`);
-
-  // 1. Send 6-digit OTP code via Neon Auth + local SMTP (if configured)
-  const [neonOtp, smtpResult] = await Promise.all([
-    callNeonAuth("email-otp/send-verification-otp", {
-      email: user.email,
-      type: "forget-password",
-    }),
-    sendResetCode(user.email, user.name, code).catch((err) => {
-      console.error("Could not send reset email via SMTP:", err.message);
-      return { error: err.message };
-    }),
-  ]);
-
-  const smtpSent = Boolean(smtpResult && !smtpResult.dev && !smtpResult.error);
-  if (!neonOtp.ok && !smtpSent) {
-    console.error("[Forgot Password] Delivery failed:", { neonOtp, smtpResult });
-    return res.status(502).json({
-      message:
-        neonOtp.data?.message ||
-        "Could not send reset email. Ensure NEON_AUTH_BASE_URL or SMTP settings are configured on the server.",
+  if (!neonOtp.ok) {
+    console.error("[Forgot Password] Neon Auth OTP delivery failed:", neonOtp);
+    const status = neonOtp.status >= 400 && neonOtp.status < 500 ? neonOtp.status : 502;
+    return res.status(status).json({
+      message: neonOtp.data?.message || "Could not send reset email via Neon Auth.",
     });
   }
 
   res.json({
-    message: `A 6-digit verification code has been sent to ${user.email}. Check your email inbox (and Spam folder).`,
-    email: user.email,
+    message: `A 6-digit verification code has been sent to ${email} via Neon Auth. Check your email inbox (and Spam folder).`,
+    email,
   });
 }
 
@@ -232,58 +219,47 @@ export async function resetPassword(req, res) {
   if (newPass.length < 8) {
     return res.status(400).json({ message: "Password must be at least 8 characters." });
   }
+  if (!NEON_AUTH_BASE) {
+    return res.status(503).json({ message: "NEON_AUTH_BASE_URL is not configured on the server." });
+  }
 
-  // 1. Try Neon Auth OTP reset
-  let neonSuccess = false;
   const neon = await callNeonAuth("email-otp/reset-password", {
     email,
     otp: code,
     password: newPass,
   });
-  if (neon.ok) {
-    neonSuccess = true;
+
+  if (!neon.ok) {
+    return res.status(400).json({
+      message:
+        neon.data?.message ||
+        "That 6-digit code is incorrect or has expired. Please check your email or request a new code.",
+    });
   }
 
-  // 2. Check local code fallback
-  const user = await User.findOne({
+  // Keep MongoDB user password hash in sync
+  let user = await User.findOne({
     $or: [
       { email },
-      { email: email.toLowerCase() },
       { email: { $regex: new RegExp(`^${email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") } },
     ],
   });
 
-  let localSuccess = false;
-  if (user && user.resetCodeHash && user.resetCodeExpires && user.resetCodeExpires.getTime() >= Date.now()) {
-    if (user.resetAttempts < MAX_ATTEMPTS) {
-      const given = Buffer.from(hashCode(user.id, code));
-      const real = Buffer.from(user.resetCodeHash);
-      if (given.length === real.length && crypto.timingSafeEqual(given, real)) {
-        localSuccess = true;
-      } else {
-        user.resetAttempts += 1;
-        await user.save();
-      }
-    }
-  }
-
-  if (!neonSuccess && !localSuccess) {
-    return res.status(400).json({
-      message: "That 6-digit code is incorrect or has expired. Please check your email or request a new code.",
-    });
-  }
-
+  const passwordHash = await bcrypt.hash(newPass, 12);
   if (user) {
-    user.passwordHash = await bcrypt.hash(newPass, 12);
+    user.passwordHash = passwordHash;
     user.resetCodeHash = "";
     user.resetCodeExpires = null;
     user.resetAttempts = 0;
     user.tokenVersion = (user.tokenVersion || 0) + 1;
     await user.save();
+  } else {
+    await User.create({
+      name: email.split("@")[0],
+      email,
+      passwordHash,
+    });
   }
-
-  // Sync password change to Neon Auth
-  callNeonAuth("sign-in/email", { email, password: newPass }).catch(() => {});
 
   res.json({ message: "Password updated successfully! You can now log in." });
 }
@@ -308,7 +284,7 @@ export async function updatePassword(req, res) {
   user.tokenVersion = (user.tokenVersion || 0) + 1;
   await user.save();
 
-  // Try to sync with Neon Auth
+  // Sync with Neon Auth
   callNeonAuth("sign-in/email", { email: user.email, password: currentPassword })
     .then(async (r) => {
       if (r.ok && r.data?.token) {
@@ -324,74 +300,56 @@ export async function updatePassword(req, res) {
   res.json({ message: "Password updated successfully." });
 }
 
-// POST /api/auth/send-verification  (needs requireAuth) - Sends real verification email via Neon Auth + Link
+// POST /api/auth/send-verification  (needs requireAuth) - Sends verification OTP via Neon Auth only
 export async function sendVerification(req, res) {
   const user = await User.findById(req.user.id);
   if (!user) return res.status(404).json({ message: "User not found." });
   if (user.emailVerified) {
     return res.json({ message: "Your email is already verified!" });
   }
+  if (!NEON_AUTH_BASE) {
+    return res.status(503).json({ message: "NEON_AUTH_BASE_URL is not configured on the server." });
+  }
 
-  // 1. Generate verification link
-  const rawToken = crypto.randomBytes(32).toString("hex");
-  user.verificationTokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
-  user.verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-  await user.save();
+  const neonOtp = await callNeonAuth("email-otp/send-verification-otp", {
+    email: user.email,
+    type: "email-verification",
+  });
 
-  const link = `${CLIENT_ORIGIN}/verify-email?token=${rawToken}`;
-
-  console.log(`\n======================================================`);
-  console.log(`🔗 [AIZU TRADE] EMAIL VERIFICATION LINK:`);
-  console.log(`👉 ${link}`);
-  console.log(`📧 For account: ${user.email} (expires in 24 hours)`);
-  console.log(`======================================================\n`);
-
-  // 2. Send OTP code via Neon Auth + verification link via SMTP (if configured)
-  const [neonOtp, smtpResult] = await Promise.all([
-    callNeonAuth("email-otp/send-verification-otp", {
-      email: user.email,
-      type: "email-verification",
-    }),
-    sendVerificationLink(user.email, user.name, link).catch((err) => {
-      console.error("Could not send verification email via SMTP:", err.message);
-      return { error: err.message };
-    }),
-  ]);
-
-  const smtpSent = Boolean(smtpResult && !smtpResult.dev && !smtpResult.error);
-  if (!neonOtp.ok && !smtpSent) {
-    console.error("[Send Verification] Delivery failed:", { neonOtp, smtpResult });
-    return res.status(502).json({
-      message:
-        neonOtp.data?.message ||
-        "Could not send verification email. Ensure NEON_AUTH_BASE_URL or SMTP settings are configured on the server.",
+  if (!neonOtp.ok) {
+    console.error("[Send Verification] Neon Auth OTP delivery failed:", neonOtp);
+    const status = neonOtp.status >= 400 && neonOtp.status < 500 ? neonOtp.status : 502;
+    return res.status(status).json({
+      message: neonOtp.data?.message || "Could not send verification email via Neon Auth.",
     });
   }
 
   res.json({
-    message: `Verification email sent to ${user.email}! Please check your email inbox (and Spam folder).`,
+    message: `Verification code sent to ${user.email} via Neon Auth! Please check your email inbox (and Spam folder).`,
   });
 }
 
-// POST /api/auth/verify-email-otp  { code } (needs requireAuth) - Verifies 6-digit OTP
+// POST /api/auth/verify-email-otp  { code } (needs requireAuth) - Verifies 6-digit OTP via Neon Auth
 export async function verifyEmailOtp(req, res) {
   const { code } = clean(req.body);
   if (!code || code.length !== 6) {
     return res.status(400).json({ message: "Please enter the 6-digit verification code." });
   }
+  if (!NEON_AUTH_BASE) {
+    return res.status(503).json({ message: "NEON_AUTH_BASE_URL is not configured on the server." });
+  }
 
   const user = await User.findById(req.user.id);
   if (!user) return res.status(404).json({ message: "User not found." });
 
-  // Try Neon Auth OTP verify
   const neon = await callNeonAuth("email-otp/verify-email", {
     email: user.email,
     otp: code,
   });
 
-  if (!neon.ok && neon.data?.message) {
+  if (!neon.ok) {
     return res.status(400).json({
-      message: neon.data.message || "Invalid or expired verification code.",
+      message: neon.data?.message || "Invalid or expired verification code.",
     });
   }
 
@@ -411,7 +369,7 @@ export async function verifyEmailOtp(req, res) {
   });
 }
 
-// GET /api/auth/verify-email?token=...  (Public verification link handler)
+// GET /api/auth/verify-email?token=...  (Legacy link endpoint)
 export async function verifyEmail(req, res) {
   const token = String(req.query.token || "").trim();
   if (!token) {
@@ -426,7 +384,7 @@ export async function verifyEmail(req, res) {
 
   if (!user) {
     return res.status(400).json({
-      message: "This verification link has expired or has already been used. Please request a new one.",
+      message: "This verification link has expired or has already been used. Please request a new 6-digit code in Settings.",
     });
   }
 
