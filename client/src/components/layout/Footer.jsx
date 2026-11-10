@@ -21,7 +21,7 @@ export default function Footer() {
           </span>
         </div>
         <p className="ft-copy">
-          © {new Date().getFullYear()} Aizu Trade · Built with Neon &amp; MongoDB.
+          © {new Date().getFullYear()} Aizu Trade · Built in INDIA
         </p>
       </div>
     </footer>
