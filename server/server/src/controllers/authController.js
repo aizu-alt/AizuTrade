@@ -10,12 +10,12 @@ const MAX_ATTEMPTS = 5;
 const RESEND_SECONDS = 60;
 const SAME_ANSWER = { message: "If that email has an account, instructions have been sent to it." };
 
-const NEON_AUTH_BASE = process.env.NEON_AUTH_BASE_URL;
+const NEON_AUTH_BASE = (process.env.NEON_AUTH_BASE_URL || "").trim().replace(/\/+$/, "");
 if (!NEON_AUTH_BASE) {
   console.warn("[WARN] NEON_AUTH_BASE_URL not set — Neon Auth features will be disabled.");
 }
 
-const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "http://localhost:5173";
+const CLIENT_ORIGIN = (process.env.CLIENT_ORIGIN || "http://localhost:5173").trim().replace(/\/+$/, "");
 
 const clean = (body = {}) => ({
   name: String(body.name ?? "").trim(),
@@ -44,6 +44,9 @@ async function callNeonAuth(endpoint, body = {}, headers = {}) {
       body: JSON.stringify(body),
     });
     const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      console.warn(`[Neon Auth] ${endpoint} failed (${res.status}):`, data?.message || data);
+    }
     return { ok: res.ok, status: res.status, data };
   } catch (err) {
     console.warn(`[Neon Auth] ${endpoint} request failed:`, err.message);
@@ -190,25 +193,30 @@ export async function forgotPassword(req, res) {
   console.log(`📧 For account: ${user.email} (expires in 10 minutes)`);
   console.log(`======================================================\n`);
 
-  // 1. Send 6-digit OTP code to real email inbox via Neon Auth
-  callNeonAuth("email-otp/send-verification-otp", {
-    email: user.email,
-    type: "forget-password",
-  }).catch((err) => console.warn("Neon OTP send warning:", err.message));
+  // 1. Send 6-digit OTP code via Neon Auth + local SMTP (if configured)
+  const [neonOtp, smtpResult] = await Promise.all([
+    callNeonAuth("email-otp/send-verification-otp", {
+      email: user.email,
+      type: "forget-password",
+    }),
+    sendResetCode(user.email, user.name, code).catch((err) => {
+      console.error("Could not send reset email via SMTP:", err.message);
+      return { error: err.message };
+    }),
+  ]);
 
-  // 2. Also send reset link via Neon Auth SendGrid
-  callNeonAuth("request-password-reset", {
-    email: user.email,
-    redirectTo: `${CLIENT_ORIGIN}/forgot-password`,
-  }).catch(() => {});
-
-  // 3. Local nodemailer if configured
-  sendResetCode(user.email, user.name, code).catch((err) =>
-    console.error("Could not send reset email:", err.message)
-  );
+  const smtpSent = Boolean(smtpResult && !smtpResult.dev && !smtpResult.error);
+  if (!neonOtp.ok && !smtpSent) {
+    console.error("[Forgot Password] Delivery failed:", { neonOtp, smtpResult });
+    return res.status(502).json({
+      message:
+        neonOtp.data?.message ||
+        "Could not send reset email. Ensure NEON_AUTH_BASE_URL or SMTP settings are configured on the server.",
+    });
+  }
 
   res.json({
-    message: `A 6-digit verification code has been sent to ${user.email}. Check your email inbox.`,
+    message: `A 6-digit verification code has been sent to ${user.email}. Check your email inbox (and Spam folder).`,
     email: user.email,
   });
 }
@@ -324,16 +332,7 @@ export async function sendVerification(req, res) {
     return res.json({ message: "Your email is already verified!" });
   }
 
-  // 1. Send OTP code via Neon Auth directly to user's real email inbox
-  callNeonAuth("email-otp/send-verification-otp", {
-    email: user.email,
-    type: "email-verification",
-  }).catch((err) => console.warn("Neon OTP send-verification failed:", err.message));
-
-  // 2. Also send verification email via Neon Auth
-  callNeonAuth("send-verification-email", { email: user.email }).catch(() => {});
-
-  // 3. Generate verification link
+  // 1. Generate verification link
   const rawToken = crypto.randomBytes(32).toString("hex");
   user.verificationTokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
   user.verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
@@ -347,12 +346,30 @@ export async function sendVerification(req, res) {
   console.log(`📧 For account: ${user.email} (expires in 24 hours)`);
   console.log(`======================================================\n`);
 
-  sendVerificationLink(user.email, user.name, link).catch((err) =>
-    console.error("Could not send verification email:", err.message)
-  );
+  // 2. Send OTP code via Neon Auth + verification link via SMTP (if configured)
+  const [neonOtp, smtpResult] = await Promise.all([
+    callNeonAuth("email-otp/send-verification-otp", {
+      email: user.email,
+      type: "email-verification",
+    }),
+    sendVerificationLink(user.email, user.name, link).catch((err) => {
+      console.error("Could not send verification email via SMTP:", err.message);
+      return { error: err.message };
+    }),
+  ]);
+
+  const smtpSent = Boolean(smtpResult && !smtpResult.dev && !smtpResult.error);
+  if (!neonOtp.ok && !smtpSent) {
+    console.error("[Send Verification] Delivery failed:", { neonOtp, smtpResult });
+    return res.status(502).json({
+      message:
+        neonOtp.data?.message ||
+        "Could not send verification email. Ensure NEON_AUTH_BASE_URL or SMTP settings are configured on the server.",
+    });
+  }
 
   res.json({
-    message: `Verification code and link sent to ${user.email}! Please check your email inbox.`,
+    message: `Verification email sent to ${user.email}! Please check your email inbox (and Spam folder).`,
   });
 }
 
