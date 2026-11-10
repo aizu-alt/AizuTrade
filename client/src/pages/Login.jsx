@@ -137,7 +137,7 @@ export default function Login() {
                 autoFocus
                 value={form.name}
                 onChange={set("name")}
-                placeholder="e.g. Suresh Kumar"
+                placeholder="e.g. Full Name"
               />
             </label>
           )}
@@ -151,7 +151,7 @@ export default function Login() {
               autoComplete="username"
               value={form.email}
               onChange={set("email")}
-              placeholder="marketing.aizu@gmail.com"
+              placeholder="Your Email"
             />
           </label>
 
