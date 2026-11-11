@@ -3,7 +3,7 @@ import Trader from "../models/Trader.js";
 
 const FIELDS = [
   "trader", "tradeDate", "coinSymbol", "side", "timeIn",
-  "qty", "entryPrice", "target", "result", "closingTime", "amount", "tradesCount", "remarks",
+  "qty", "entryPrice", "target", "result", "closingDate", "closingTime", "amount", "tradesCount", "remarks",
 ];
 
 // copy only the fields we allow from the request body

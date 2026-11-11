@@ -1,6 +1,6 @@
 // client/src/utils/exportTrades.js  —  download trades as Excel (.xlsx) or PDF
 import * as XLSX from "xlsx";
-import { prettyDate, weekday } from "./format";
+import { dayMonth, prettyDate, weekday } from "./format";
 
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : "");
 const byDateTime = (a, b) => a.tradeDate.localeCompare(b.tradeDate) || (a.timeIn || "").localeCompare(b.timeIn || "");
@@ -22,18 +22,18 @@ const todayISO = () => {
 // Same column names as the Excel upload template, so an exported file can be imported again.
 export function exportExcel(trades, fileBase = "aizu-trades") {
   const list = [...trades].sort(byDateTime);
-  const head = ["Date", "Trader", "Coin Symbol", "Buy/Sell", "Time In", "Qty", "Entry Price", "Target", "Result", "Closing Time", "Amount", "Trades", "Remarks"];
+  const head = ["Date", "Trader", "Coin Symbol", "Buy/Sell", "Time In", "Qty", "Entry Price", "Target", "Result", "Closing Date", "Closing Time", "Amount", "Trades", "Remarks"];
   const rows = list.map((t) => [
     t.tradeDate, t.trader, t.coinSymbol, cap(t.side), t.timeIn || "", t.qty, t.entryPrice, t.target || "",
-    cap(t.result), t.closingTime || "", t.amount, t.tradesCount, t.remarks || "",
+    cap(t.result), t.closingDate || "", t.closingTime || "", t.amount, t.tradesCount, t.remarks || "",
   ]);
   const ws = XLSX.utils.aoa_to_sheet([head, ...rows]);
-  ws["!cols"] = [12, 14, 13, 10, 9, 12, 13, 12, 11, 13, 13, 8, 40].map((wch) => ({ wch }));
+  ws["!cols"] = [12, 14, 13, 10, 9, 12, 13, 12, 11, 13, 13, 13, 8, 40].map((wch) => ({ wch }));
   // number formats for the money columns
   rows.forEach((_, i) => {
-    [6, 7, 10].forEach((c) => {
+    [6, 7, 11].forEach((c) => {
       const cell = ws[XLSX.utils.encode_cell({ r: i + 1, c })];
-      if (cell && typeof cell.v === "number") cell.z = c === 10 ? "#,##0.00" : "0.00####";
+      if (cell && typeof cell.v === "number") cell.z = c === 11 ? "#,##0.00" : "0.00####";
     });
   });
 
@@ -108,12 +108,16 @@ export async function exportPdf(trades, { subtitle = "" } = {}, fileBase = "aizu
       colSpan: 12,
       styles: { fillColor: [226, 232, 240], fontStyle: "bold", textColor: [15, 23, 42] },
     }]);
-    items.forEach((t) =>
+    items.forEach((t) => {
+      const closing = [
+        t.closingDate && t.closingDate !== t.tradeDate ? dayMonth(t.closingDate) : "",
+        t.closingTime || "",
+      ].filter(Boolean).join(" ") || "-";
       body.push([
         t.trader, t.coinSymbol, cap(t.side), t.timeIn || "-", num(t.qty, 8), pr(t.entryPrice),
-        t.target ? pr(t.target) : "-", cap(t.result), t.closingTime || "-", inr(t.amount, true), t.tradesCount, t.remarks || "",
-      ])
-    );
+        t.target ? pr(t.target) : "-", cap(t.result), closing, inr(t.amount, true), t.tradesCount, t.remarks || "",
+      ]);
+    });
   });
 
   autoTable(doc, {

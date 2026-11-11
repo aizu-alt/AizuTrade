@@ -48,7 +48,7 @@ export default function ImportExcel({ existingTraders = [], onImport, onClose })
       <div className="xl-top">
         <p className="xl-help">
           Upload an Excel (.xlsx) or CSV file. Each row becomes one trade. Columns:
-          <b> Date, Trader, Coin Symbol, Buy/Sell, Time In, Qty, Entry Price, Target, Result, Closing Time, Amount, Trades, Remarks</b>.
+          <b> Date, Trader, Coin Symbol, Buy/Sell, Time In, Qty, Entry Price, Target, Result, Closing Date, Closing Time, Amount, Trades, Remarks</b>.
         </p>
         <button type="button" className="xl-link" onClick={downloadTemplate}>
           <Download size={16} /> Download template
@@ -92,7 +92,7 @@ export default function ImportExcel({ existingTraders = [], onImport, onClose })
             <table className="xl-table">
               <thead>
                 <tr>
-                  {["Row", "Date", "Trader", "Coin", "Side", "In", "Qty", "Entry", "Target", "Result", "Out", "Amount", "Trades", "Status"].map((h) => <th key={h}>{h}</th>)}
+                  {["Row", "Date", "Trader", "Coin", "Side", "In", "Qty", "Entry", "Target", "Result", "Close Date", "Out", "Amount", "Trades", "Status"].map((h) => <th key={h}>{h}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -108,6 +108,7 @@ export default function ImportExcel({ existingTraders = [], onImport, onClose })
                     <td>{t.entryPrice == null ? "—" : num(t.entryPrice)}</td>
                     <td>{t.target ? num(t.target) : "—"}</td>
                     <td>{t.result || "—"}</td>
+                    <td>{t.closingDate || "—"}</td>
                     <td>{t.closingTime || "—"}</td>
                     <td>{num(t.amount)}</td>
                     <td>{t.tradesCount}</td>

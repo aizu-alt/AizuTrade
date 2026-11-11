@@ -15,7 +15,7 @@ import {
 } from "../api/trades";
 import ImportExcel from "../components/Journal/ImportExcel";
 import { exportExcel, exportPdf } from "../utils/exportTrades";
-import { money, price, time24, toISO, shiftDay, weekStart, monthStart, prettyDate, weekday } from "../utils/format";
+import { money, price, time24, toISO, shiftDay, weekStart, monthStart, prettyDate, dayMonth, weekday } from "../utils/format";
 import "./Journal.css";
 import "./Journalview.css";
 
@@ -46,21 +46,24 @@ function TradeFormModal({ initial, defaultDate, defaultTrader, traders = [], sav
   const [newTraderInput, setNewTraderInput] = useState("");
 
   const [form, setForm] = useState(
-    initial ?? {
-      trader: defaultTrader || traders[0] || "",
-      tradeDate: defaultDate,
-      coinSymbol: "",
-      side: "buy",
-      timeIn: "",
-      qty: "",
-      entryPrice: "",
-      target: "",
-      result: "open",
-      closingTime: "",
-      amount: "",
-      tradesCount: 1,
-      remarks: "",
-    }
+    initial
+      ? { closingDate: "", ...initial }
+      : {
+          trader: defaultTrader || traders[0] || "",
+          tradeDate: defaultDate,
+          coinSymbol: "",
+          side: "buy",
+          timeIn: "",
+          qty: "",
+          entryPrice: "",
+          target: "",
+          result: "open",
+          closingDate: "",
+          closingTime: "",
+          amount: "",
+          tradesCount: 1,
+          remarks: "",
+        }
   );
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -123,12 +126,17 @@ function TradeFormModal({ initial, defaultDate, defaultTrader, traders = [], sav
       alert("Please enter a valid 24-hour Closing Time (00:00 to 23:59), e.g. 16:45");
       return;
     }
+    if (form.closingDate && form.tradeDate && form.closingDate < form.tradeDate) {
+      alert("Closing Date cannot be earlier than the Trade Date.");
+      return;
+    }
     const normTimeIn = form.timeIn ? form.timeIn.padStart(5, "0") : "";
     const normClosingTime = form.closingTime ? form.closingTime.padStart(5, "0") : "";
 
     onSave({
       ...form,
       timeIn: normTimeIn,
+      closingDate: form.closingDate || "",
       closingTime: normClosingTime,
       qty: Number(form.qty || 9999),
       entryPrice: Number(form.entryPrice),
@@ -315,6 +323,27 @@ function TradeFormModal({ initial, defaultDate, defaultTrader, traders = [], sav
                   <option value="open">Open</option><option value="win">Win</option>
                   <option value="loss">Loss</option><option value="breakeven">Breakeven</option>
                 </select></div>
+              <div className="jr-field">
+                <div className="jr-time-label-row">
+                  <label>Closing Date</label>
+                  {form.closingDate && (
+                    <button
+                      type="button"
+                      className="jr-time-now-btn"
+                      onClick={() => setForm((f) => ({ ...f, closingDate: "" }))}
+                      title="Clear closing date"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="date"
+                  min={form.tradeDate || undefined}
+                  value={form.closingDate || ""}
+                  onChange={set("closingDate")}
+                />
+              </div>
               <div className="jr-field">
                 <div className="jr-time-label-row">
                   <label>Closing Time (24h)</label>
@@ -776,7 +805,7 @@ export default function Journal({ formOpen, setFormOpen }) {
                       <table className="jr-table">
                         <thead>
                           <tr>
-                            {["Trader", "Coin", "Side", "Time in", "Qty", "Entry Price", "Target", "Result", "Closing Time", "Net amount", "Trades", "Remarks", ""].map((h, i) => <th key={i}>{h}</th>)}
+                            {["Trader", "Coin", "Side", "Time in", "Qty", "Entry Price", "Target", "Result", "Closing Date", "Closing Time", "Net amount", "Trades", "Remarks", ""].map((h, i) => <th key={i}>{h}</th>)}
                           </tr>
                         </thead>
                         <tbody>
@@ -790,6 +819,7 @@ export default function Journal({ formOpen, setFormOpen }) {
                               <td>{price(t.entryPrice)}</td>
                               <td>{t.target ? price(t.target) : "--"}</td>
                               <td><ResultBadge result={t.result} /></td>
+                              <td>{t.closingDate ? prettyDate(t.closingDate) : "--"}</td>
                               <td>{time24(t.closingTime)}</td>
                               <td className={`jr-amount ${t.amount > 0 ? "pos" : t.amount < 0 ? "neg" : "zero"}`}>{money(t.amount)}</td>
                               <td>{t.tradesCount}</td>
@@ -822,7 +852,9 @@ export default function Journal({ formOpen, setFormOpen }) {
 
                           <div className="jr-mcard-meta">
                             <span className="jv-trader">{t.trader}</span>
-                            <span>{time24(t.timeIn)} → {time24(t.closingTime)}</span>
+                            <span>
+                              {time24(t.timeIn)} → {t.closingDate && t.closingDate !== t.tradeDate ? `${dayMonth(t.closingDate)} ` : ""}{time24(t.closingTime)}
+                            </span>
                             <span>{t.tradesCount} trade{t.tradesCount === 1 ? "" : "s"}</span>
                           </div>
 

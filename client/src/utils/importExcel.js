@@ -4,7 +4,7 @@ import * as XLSX from "xlsx";
 
 export const TEMPLATE_HEADERS = [
   "Date", "Trader", "Coin Symbol", "Buy/Sell", "Time In", "Qty", "Entry Price",
-  "Target", "Result", "Closing Time", "Amount", "Trades", "Remarks",
+  "Target", "Result", "Closing Date", "Closing Time", "Amount", "Trades", "Remarks",
 ];
 
 // header names we accept for each field (spaces, case and symbols are ignored)
@@ -18,6 +18,7 @@ const ALIASES = {
   entryPrice: ["entry price", "entry", "price", "buy price"],
   target: ["target", "target price", "tp"],
   result: ["result", "status", "outcome"],
+  closingDate: ["closing date", "close date", "exit date", "out date", "date out"],
   closingTime: ["closing time", "close time", "exit time", "out time", "time out"],
   amount: ["amount", "net amount", "pnl", "p&l", "p/l", "profit/loss", "profit"],
   tradesCount: ["trades", "no of trades", "no. of trades", "trade count", "count", "# trades"],
@@ -175,6 +176,13 @@ export async function parseTradesFile(file) {
     const target = isBlank(targetRaw) ? 0 : toNumber(targetRaw);
     if (target === null) errors.push("Target is not a number");
 
+    const closingDateRaw = cell("closingDate");
+    const closingDate = isBlank(closingDateRaw) ? "" : toDate(closingDateRaw);
+    if (closingDate === null) errors.push("Closing date invalid");
+    if (tradeDate && closingDate && closingDate < tradeDate) {
+      errors.push("Closing date cannot be before Date");
+    }
+
     const closingRaw = cell("closingTime");
     const closingTime = toTime(closingRaw);
     if (closingTime === null) errors.push("Closing time invalid");
@@ -191,7 +199,7 @@ export async function parseTradesFile(file) {
     let result = toResult(resultRaw);
     if (isBlank(resultRaw)) {
       const amt = amount || 0;
-      result = amt > 0 ? "win" : amt < 0 ? "loss" : closingTime ? "breakeven" : "open";
+      result = amt > 0 ? "win" : amt < 0 ? "loss" : (closingTime || closingDate) ? "breakeven" : "open";
     } else if (!result) {
       errors.push("Result must be Win, Loss, Open or Breakeven");
     }
@@ -201,7 +209,7 @@ export async function parseTradesFile(file) {
       errors,
       trade: {
         tradeDate, trader, coinSymbol, side, timeIn, qty, entryPrice,
-        target: target ?? 0, result, closingTime: closingTime || "", amount: amount ?? 0,
+        target: target ?? 0, result, closingDate: closingDate || "", closingTime: closingTime || "", amount: amount ?? 0,
         tradesCount, remarks: String(cell("remarks") ?? "").trim(),
       },
     });
@@ -215,12 +223,14 @@ export async function parseTradesFile(file) {
 /* ---------- template download ---------- */
 export function downloadTemplate() {
   const today = new Date();
+  const next = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
   const iso = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+  const nextIso = `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}`;
   const sheet = XLSX.utils.aoa_to_sheet([
     TEMPLATE_HEADERS,
-    [iso, "Suresh", "PENGU", "Buy", "09:42", 5000, 2.85, 3.1, "Win", "11:15", 1240.5, 2, "Breakout with volume"],
-    [iso, "Suresh", "ENA", "Sell", "11:05", 800, 41.2, 38.5, "Loss", "11:50", -320, 1, "Stopped out"],
-    [iso, "Ravi", "PENGU", "Buy", "14:20", 6000, 2.9, 3.2, "Open", "", 0, 1, "Holding"],
+    [iso, "Suresh", "PENGU", "Buy", "09:42", 5000, 2.85, 3.1, "Win", iso, "11:15", 1240.5, 2, "Breakout with volume"],
+    [iso, "Suresh", "ENA", "Sell", "11:05", 800, 41.2, 38.5, "Loss", nextIso, "11:50", -320, 1, "Closed next day"],
+    [iso, "Ravi", "PENGU", "Buy", "14:20", 6000, 2.9, 3.2, "Open", "", "", 0, 1, "Holding"],
   ]);
   sheet["!cols"] = TEMPLATE_HEADERS.map((h) => ({ wch: Math.max(12, h.length + 2) }));
   const wb = XLSX.utils.book_new();
