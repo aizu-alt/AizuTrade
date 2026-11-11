@@ -20,7 +20,7 @@ import "./Journal.css";
 import "./Journalview.css";
 
 /* coins shown in the Coin symbol dropdown of the form */
-const COINS = ["PENGU", "ETA"];
+const COINS = ["PENGU", "ENA"];
 
 /* ---------- small UI pieces ---------- */
 const SidePill = ({ side }) => <span className={`jr-pill ${side}`}>{side}</span>;
