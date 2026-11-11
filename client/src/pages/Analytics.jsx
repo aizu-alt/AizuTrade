@@ -5,7 +5,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine,
 } from "recharts";
 import { getTrades } from "../api/trades";
-import { money, compactINR, toISO, shiftDay, weekStart, dayMonth, monthLabel, prettyDate } from "../utils/format";
+import { money, compactUSD, toISO, shiftDay, weekStart, dayMonth, monthLabel, prettyDate } from "../utils/format";
 import "./Analytics.css";
 
 const GREEN = "#16a34a";
@@ -112,7 +112,7 @@ function NetBars({ data, nameKey = "label" }) {
         <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke="#e2e8f0" />
           <XAxis dataKey={nameKey} {...axis} interval="preserveStartEnd" />
-          <YAxis {...axis} tickFormatter={compactINR} width={64} />
+          <YAxis {...axis} tickFormatter={compactUSD} width={64} />
           <Tooltip content={<MoneyTip />} cursor={{ fill: "rgba(37, 99, 235, 0.06)" }} />
           <ReferenceLine y={0} stroke="#94a3b8" />
           <Bar dataKey="net" name="Net P&L" radius={[4, 4, 0, 0]} maxBarSize={48}>
@@ -243,7 +243,7 @@ export function AnalyticsView({ all: raw }) {
                   <LineChart data={curve} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                     <CartesianGrid vertical={false} stroke="#e2e8f0" />
                     <XAxis dataKey="label" {...axis} interval="preserveStartEnd" minTickGap={24} />
-                    <YAxis {...axis} tickFormatter={compactINR} width={64} />
+                    <YAxis {...axis} tickFormatter={compactUSD} width={64} />
                     <Tooltip content={<MoneyTip />} />
                     <ReferenceLine y={0} stroke="#94a3b8" />
                     <Line type="monotone" dataKey="net" name="Total P&L" stroke="#2563eb" strokeWidth={2.5} dot={curve.length < 40} />
@@ -294,7 +294,7 @@ export function AnalyticsView({ all: raw }) {
                   <BarChart data={traderByPeriod} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                     <CartesianGrid vertical={false} stroke="#e2e8f0" />
                     <XAxis dataKey="label" {...axis} interval="preserveStartEnd" />
-                    <YAxis {...axis} tickFormatter={compactINR} width={64} />
+                    <YAxis {...axis} tickFormatter={compactUSD} width={64} />
                     <Tooltip content={<MoneyTip />} cursor={{ fill: "rgba(37, 99, 235, 0.06)" }} />
                     <Legend iconType="circle" />
                     <ReferenceLine y={0} stroke="#94a3b8" />

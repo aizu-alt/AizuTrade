@@ -815,7 +815,7 @@ export default function Journal({ formOpen, setFormOpen }) {
                               <td><div className="jr-coin">{t.coinSymbol}</div></td>
                               <td><SidePill side={t.side} /></td>
                               <td>{time24(t.timeIn)}</td>
-                              <td>{t.qty.toLocaleString("en-IN")}</td>
+                              <td>{t.qty.toLocaleString("en-US")}</td>
                               <td>{price(t.entryPrice)}</td>
                               <td>{t.target ? price(t.target) : "--"}</td>
                               <td><ResultBadge result={t.result} /></td>
@@ -861,7 +861,7 @@ export default function Journal({ formOpen, setFormOpen }) {
                           <div className="jr-mcard-grid">
                             <div>
                               <small>Qty</small>
-                              <b>{t.qty.toLocaleString("en-IN")}</b>
+                              <b>{t.qty.toLocaleString("en-US")}</b>
                             </div>
                             <div>
                               <small>Entry</small>

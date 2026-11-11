@@ -93,7 +93,7 @@ export function toTime(v) {
 export function toNumber(v) {
   if (isBlank(v)) return null;
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
-  let s = String(v).trim().replace(/[$$,\s]/g, "").replace(/[−–]/g, "-");
+  let s = String(v).trim().replace(/[$,\s]/g, "").replace(/[−–]/g, "-");
   const bracket = s.match(/^\((.*)\)$/); // (320) means -320
   if (bracket) s = "-" + bracket[1];
   if (s === "" || isNaN(Number(s))) return null;

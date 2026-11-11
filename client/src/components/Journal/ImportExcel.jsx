@@ -4,7 +4,7 @@ import { Upload, Download, FileSpreadsheet } from "lucide-react";
 import { parseTradesFile, downloadTemplate } from "../../utils/importExcel";
 import "./ImportExcel.css";
 
-const num = (n) => Number(n).toLocaleString("en-IN", { maximumFractionDigits: 8 });
+const num = (n) => Number(n).toLocaleString("en-US", { maximumFractionDigits: 8 });
 
 export default function ImportExcel({ existingTraders = [], onImport, onClose }) {
   const [fileName, setFileName] = useState("");
