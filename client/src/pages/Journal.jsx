@@ -1,23 +1,37 @@
 // client/src/pages/Journal.jsx  —  all trades, grouped by date, with filters and export
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   Search, Plus, Pencil, Trash2, RotateCcw, X, FileSpreadsheet, ClipboardList,
   Download, FileText, ChevronDown, ChevronRight,
 } from "lucide-react";
 import {
-  getTrades,
-  createTrade,
-  updateTrade,
-  deleteTradeById,
-  getTraders,
+  useTrades,
+  useTraders,
+  useCreateTrade,
+  useUpdateTrade,
+  useDeleteTrade,
   bulkCreateTrades,
   getRecycleBinTrades,
+  getAnalytics,
+  tradesKeys,
 } from "../api/trades";
+import { queryClient } from "../queryClient";
 import ImportExcel from "../components/Journal/ImportExcel";
 import { exportExcel, exportPdf } from "../utils/exportTrades";
 import { money, price, time24, toISO, shiftDay, weekStart, monthStart, prettyDate, dayMonth, weekday } from "../utils/format";
+import { PageSkeleton } from "../components/common/Skeleton";
 import "./Journal.css";
 import "./Journalview.css";
+
+// Hook to debounce search input by 300ms
+function useDebounce(value, delay = 300) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
+}
 
 /* coins shown in the Coin symbol dropdown of the form */
 const COINS = ["PENGU", "ENA"];
@@ -384,33 +398,9 @@ function TradeFormModal({ initial, defaultDate, defaultTrader, traders = [], sav
   );
 }
 
-const TRADES_CACHE_KEY = "aizu_cached_trades";
-const TRADERS_CACHE_KEY = "aizu_cached_traders";
-
-const readSessionJson = (key, fallback) => {
-  try {
-    const raw = sessionStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
-};
-
-const writeSessionJson = (key, data) => {
-  try {
-    sessionStorage.setItem(key, JSON.stringify(data));
-  } catch {}
-};
-
 /* ---------- Journal page ---------- */
 export default function Journal({ formOpen, setFormOpen }) {
-  // --- data (starts with cached data for instant 0ms initial render) ---
-  const [trades, setTrades] = useState(() => readSessionJson(TRADES_CACHE_KEY, []));
-  const [traders, setTraders] = useState(() => readSessionJson(TRADERS_CACHE_KEY, []));
-  const [loading, setLoading] = useState(() => readSessionJson(TRADES_CACHE_KEY, []).length === 0);
-  const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [refresh, setRefresh] = useState(0);
   const [editing, setEditing] = useState(null);
 
   // --- filters ---
@@ -421,6 +411,32 @@ export default function Journal({ formOpen, setFormOpen }) {
   const [side, setSide] = useState("all");
   const [result, setResult] = useState("all"); // all | win | loss | open
   const [query, setQuery] = useState("");
+  const debouncedQuery = useDebounce(query, 300);
+
+  // Server-side filter parameters
+  const filterParams = useMemo(() => {
+    const p = {};
+    if (from) p.dateFrom = from;
+    if (to) p.dateTo = to;
+    if (trader !== "All") p.trader = trader;
+    if (coin !== "All") p.coin = coin;
+    if (side !== "all") p.side = side;
+    if (result !== "all") p.result = result;
+    if (debouncedQuery) p.q = debouncedQuery;
+    return p;
+  }, [from, to, trader, coin, side, result, debouncedQuery]);
+
+  // TanStack Query hooks with auto-caching
+  const { data: rawTrades, isLoading, isError, error, refetch } = useTrades(filterParams);
+  const { data: tradersData } = useTraders();
+
+  const trades = useMemo(() => (Array.isArray(rawTrades) ? rawTrades : rawTrades?.trades || []), [rawTrades]);
+  const traders = useMemo(() => (Array.isArray(tradersData) ? tradersData : []), [tradersData]);
+
+  // Optimistic mutation hooks
+  const createTradeMutation = useCreateTrade();
+  const updateTradeMutation = useUpdateTrade();
+  const deleteTradeMutation = useDeleteTrade();
 
   // --- view state ---
   const [collapsed, setCollapsed] = useState(() => new Set()); // dates that are folded
@@ -438,48 +454,29 @@ export default function Journal({ formOpen, setFormOpen }) {
       .catch(() => {});
   };
 
-  // load trades (newest first) and trader names in parallel
   useEffect(() => {
-    let cancelled = false;
-    if (trades.length === 0) setLoading(true);
-    setError("");
-
     fetchBinCount();
+  }, []);
 
-    Promise.all([
-      getTrades({}),
-      getTraders(),
-    ])
-      .then(([tradesData, tradersData]) => {
-        if (cancelled) return;
-        setTrades(tradesData);
-        setTraders(tradersData);
-        writeSessionJson(TRADES_CACHE_KEY, tradesData);
-        writeSessionJson(TRADERS_CACHE_KEY, tradersData);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err.message);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => { cancelled = true; };
-  }, [refresh]);
+  // Prefetch Analytics on Journal mount for instant 0ms tab navigation
+  useEffect(() => {
+    queryClient.prefetchQuery({
+      queryKey: tradesKeys.analytics({ range: "90" }),
+      queryFn: () => getAnalytics({ range: "90" }),
+      staleTime: 2 * 60 * 1000,
+    });
+  }, []);
 
   // Listen to trader and trade updates from modals (e.g. Recycle Bin)
   useEffect(() => {
     const handleTradersUpdate = () => {
-      getTraders().then((n) => {
-        setTraders(n);
-        writeSessionJson(TRADERS_CACHE_KEY, n);
-      }).catch(() => {});
-      setRefresh((n) => n + 1);
+      queryClient.invalidateQueries({ queryKey: tradesKeys.traders });
+      queryClient.invalidateQueries({ queryKey: tradesKeys.lists() });
     };
 
     const handleTradesUpdate = () => {
       fetchBinCount();
-      setRefresh((n) => n + 1);
+      queryClient.invalidateQueries({ queryKey: tradesKeys.lists() });
     };
 
     window.addEventListener("traders:updated", handleTradersUpdate);
@@ -502,41 +499,18 @@ export default function Journal({ formOpen, setFormOpen }) {
   const coinList = useMemo(() => [...new Set([...COINS, ...trades.map((t) => t.coinSymbol)])].sort(), [trades]);
   const traderList = useMemo(() => [...new Set([...traders, ...trades.map((t) => t.trader)])].sort(), [traders, trades]);
 
-  // High-performance single-pass filter: avoids 6 chained arrays + re-sorting
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const hasFilter = from || to || trader !== "All" || coin !== "All" || side !== "all" || result !== "all" || q;
-    if (!hasFilter) return trades;
-
-    return trades.filter((t) => {
-      if (from && t.tradeDate < from) return false;
-      if (to && t.tradeDate > to) return false;
-      if (trader !== "All" && t.trader !== trader) return false;
-      if (coin !== "All" && t.coinSymbol !== coin) return false;
-      if (side !== "all" && t.side !== side) return false;
-      if (result !== "all" && t.result !== result) return false;
-      if (q) {
-        const symbolMatch = t.coinSymbol?.toLowerCase().includes(q);
-        const remarksMatch = t.remarks?.toLowerCase().includes(q);
-        const traderMatch = t.trader?.toLowerCase().includes(q);
-        if (!symbolMatch && !remarksMatch && !traderMatch) return false;
-      }
-      return true;
-    });
-  }, [trades, from, to, trader, coin, side, result, query]);
-
-  // group the visible trades by date (newest date first)
+  // Group trades by date (newest date first)
   const groups = useMemo(() => {
     const list = [];
-    visible.forEach((t) => {
+    trades.forEach((t) => {
       const g = list[list.length - 1];
       if (g && g.date === t.tradeDate) g.items.push(t);
       else list.push({ date: t.tradeDate, items: [t] });
     });
     return list.map((g) => ({ ...g, ...totals(g.items) }));
-  }, [visible]);
+  }, [trades]);
 
-  const sum = useMemo(() => totals(visible), [visible]);
+  const sum = useMemo(() => totals(trades), [trades]);
 
   const filtersActive = from || to || trader !== "All" || coin !== "All" || side !== "all" || result !== "all" || query;
   const clearFilters = () => {
@@ -561,22 +535,22 @@ export default function Journal({ formOpen, setFormOpen }) {
   const allCollapsed = groups.length > 0 && groups.every((g) => collapsed.has(g.date));
 
   // --- export ---
-  const exportList =
-    scope === "all" ? trades
-    : scope === "range" ? trades.filter((t) => inRange(t, rFrom, rTo))
-    : visible;
-
-  const scopeLabel =
-    scope === "all" ? "All data"
-    : scope === "range" ? `${rFrom ? prettyDate(rFrom) : "Start"} to ${rTo ? prettyDate(rTo) : "latest"}`
-    : "Current view (filters applied)";
-
-  const run = async (list, format, subtitle, base) => {
-    if (!list.length) return alert("There are no trades to export.");
+  const exportMenu = async (format) => {
     setExporting(true);
     try {
-      if (format === "excel") exportExcel(list, base);
-      else await exportPdf(list, { subtitle }, base);
+      if (scope === "all") {
+        if (format === "excel") await exportExcel({}, `aizu-trades-all-${today}`);
+        else await exportPdf({}, { subtitle: "All data" }, `aizu-trades-all-${today}`);
+      } else if (scope === "range") {
+        const params = { dateFrom: rFrom || undefined, dateTo: rTo || undefined };
+        const sub = `${rFrom ? prettyDate(rFrom) : "Start"} to ${rTo ? prettyDate(rTo) : "latest"}`;
+        if (format === "excel") await exportExcel(params, `aizu-trades-range-${today}`);
+        else await exportPdf(params, { subtitle: sub }, `aizu-trades-range-${today}`);
+      } else {
+        if (!trades.length) return alert("There are no trades to export.");
+        if (format === "excel") await exportExcel(trades, `aizu-trades-view-${today}`);
+        else await exportPdf(trades, { subtitle: "Current view (filters applied)" }, `aizu-trades-view-${today}`);
+      }
     } catch (err) {
       alert("Export failed: " + err.message);
     } finally {
@@ -584,23 +558,34 @@ export default function Journal({ formOpen, setFormOpen }) {
       setExportOpen(false);
     }
   };
-  const exportMenu = (format) =>
-    run(exportList, format, scopeLabel, `aizu-trades-${scope === "view" ? "view" : scope}-${today}`);
-  const exportDay = (g, format) =>
-    run(g.items, format, `${prettyDate(g.date)} (${weekday(g.date)})`, `aizu-trades-${g.date}`);
 
-  // --- add / edit / delete ---
+  const exportDay = async (g, format) => {
+    if (!g.items?.length) return;
+    setExporting(true);
+    try {
+      if (format === "excel") await exportExcel(g.items, `aizu-trades-${g.date}`);
+      else await exportPdf(g.items, { subtitle: `${prettyDate(g.date)} (${weekday(g.date)})` }, `aizu-trades-${g.date}`);
+    } catch (err) {
+      alert("Export failed: " + err.message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // --- add / edit / delete with optimistic UI updates ---
   const closeModal = () => { setEditing(null); setFormOpen(false); };
 
   const saveTrade = async (data) => {
     setSaving(true);
     try {
-      if (editing) await updateTrade(editing.id, data);
-      else await createTrade(data);
-      setRefresh((n) => n + 1);
+      if (editing) {
+        await updateTradeMutation.mutateAsync({ id: editing.id, trade: data });
+      } else {
+        await createTradeMutation.mutateAsync(data);
+      }
       closeModal();
     } catch (err) {
-      alert(err.message);
+      alert(err.message || "Failed to save trade.");
     } finally {
       setSaving(false);
     }
@@ -608,18 +593,18 @@ export default function Journal({ formOpen, setFormOpen }) {
 
   const importTrades = async (list) => {
     await bulkCreateTrades(list); // errors show inside the upload panel
-    setRefresh((n) => n + 1);
+    queryClient.invalidateQueries({ queryKey: tradesKeys.lists() });
+    queryClient.invalidateQueries({ queryKey: tradesKeys.traders });
     closeModal();
   };
 
   const deleteTrade = async (id) => {
     if (!window.confirm("Move this trade to Recycle Bin? You can restore it anytime.")) return;
     try {
-      await deleteTradeById(id);
+      await deleteTradeMutation.mutateAsync(id);
       fetchBinCount();
-      setRefresh((n) => n + 1);
     } catch (err) {
-      alert(err.message);
+      alert(err.message || "Failed to delete trade.");
     }
   };
 
@@ -731,7 +716,7 @@ export default function Journal({ formOpen, setFormOpen }) {
       </div>
 
       {/* totals for what is on screen */}
-      {!loading && !error && trades.length > 0 && (
+      {!isLoading && !isError && trades.length > 0 && (
         <div className="jr-card jr-summary">
           <div className="jr-stats">
             <span>Trades: <b>{sum.total}</b> <small className="jv-muted">on {groups.length} day{groups.length === 1 ? "" : "s"}</small></span>
@@ -747,13 +732,13 @@ export default function Journal({ formOpen, setFormOpen }) {
       )}
 
       {/* the list */}
-      {loading ? (
-        <div className="jr-card jr-state"><p className="jr-state-text">Loading trades…</p></div>
-      ) : error ? (
+      {isLoading && trades.length === 0 ? (
+        <PageSkeleton />
+      ) : isError ? (
         <div className="jr-card jr-state">
           <p className="jr-state-title error">Could not load trades</p>
-          <p className="jr-state-text">{error}</p>
-          <button onClick={() => setRefresh((n) => n + 1)} className="jr-state-btn">Try again</button>
+          <p className="jr-state-text">{error?.message || "Error loading trades"}</p>
+          <button onClick={() => refetch()} className="jr-state-btn">Try again</button>
         </div>
       ) : groups.length === 0 ? (
         <div className="jr-card jr-state">

@@ -1,6 +1,6 @@
-// client/src/utils/exportTrades.js  —  download trades as Excel (.xlsx) or PDF
-import * as XLSX from "xlsx";
+// client/src/utils/exportTrades.js  —  download trades as Excel (.xlsx) or PDF with lazy loading
 import { dayMonth, prettyDate, weekday } from "./format";
+import { getExportTrades } from "../api/trades";
 
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : "");
 const byDateTime = (a, b) => a.tradeDate.localeCompare(b.tradeDate) || (a.timeIn || "").localeCompare(b.timeIn || "");
@@ -19,8 +19,14 @@ const todayISO = () => {
 };
 
 /* ---------------- Excel ---------------- */
-// Same column names as the Excel upload template, so an exported file can be imported again.
-export function exportExcel(trades, fileBase = "aizu-trades") {
+// Lazy-loads XLSX only when clicked, and can fetch directly from the dedicated export endpoint
+export async function exportExcel(tradesOrParams, fileBase = "aizu-trades") {
+  let trades = tradesOrParams;
+  if (!Array.isArray(tradesOrParams)) {
+    trades = await getExportTrades(tradesOrParams || {});
+  }
+
+  const XLSX = await import("xlsx");
   const list = [...trades].sort(byDateTime);
   const head = ["Date", "Trader", "Coin Symbol", "Buy/Sell", "Time In", "Qty", "Entry Price", "Target", "Result", "Closing Date", "Closing Time", "Amount", "Trades", "Remarks"];
   const rows = list.map((t) => [
@@ -75,7 +81,12 @@ const usd = (n, signed = false) => {
 const pr = (n) => "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 6 });
 const num = (n, max = 6) => Number(n).toLocaleString("en-US", { maximumFractionDigits: max });
 
-export async function exportPdf(trades, { subtitle = "" } = {}, fileBase = "aizu-trades") {
+export async function exportPdf(tradesOrParams, { subtitle = "" } = {}, fileBase = "aizu-trades") {
+  let trades = tradesOrParams;
+  if (!Array.isArray(tradesOrParams)) {
+    trades = await getExportTrades(tradesOrParams || {});
+  }
+
   // loaded only when needed, so the app starts faster
   const { jsPDF } = await import("jspdf");
   const autoTable = (await import("jspdf-autotable")).default;

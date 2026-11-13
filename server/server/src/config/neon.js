@@ -76,3 +76,4 @@ export async function isNeonAdmin(email, { bypassCache = false } = {}) {
   const row = await getNeonUserByEmail(cleanEmail);
   return Boolean(row && row.role === "admin");
 }
+

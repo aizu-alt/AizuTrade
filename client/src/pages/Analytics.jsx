@@ -1,11 +1,12 @@
-// client/src/pages/Analytics.jsx  —  weekly / monthly / trader-wise analysis with charts
-import { Component, useEffect, useMemo, useState } from "react";
+// client/src/pages/Analytics.jsx  —  weekly / monthly / trader-wise analysis with charts & DB aggregation
+import { Component, useMemo, useState } from "react";
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine,
 } from "recharts";
-import { getTrades } from "../api/trades";
-import { money, compactUSD, toISO, shiftDay, weekStart, dayMonth, monthLabel, prettyDate } from "../utils/format";
+import { useAnalytics, useTraders } from "../api/trades";
+import { money, compactUSD, dayMonth, monthLabel, prettyDate, weekStart } from "../utils/format";
+import { PageSkeleton } from "../components/common/Skeleton";
 import "./Analytics.css";
 
 const GREEN = "#16a34a";
@@ -27,9 +28,7 @@ export function stats(list) {
   const wins = list.filter((t) => t.result === "win").length;
   const losses = list.filter((t) => t.result === "loss").length;
   const open = list.filter((t) => t.result === "open").length;
-  const net = list.reduce((s, t) => s + t.amount, 0);
-  const grossWin = list.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
-  const grossLoss = Math.abs(list.filter((t) => t.amount < 0).reduce((s, t) => s + t.amount, 0));
+  const net = list.reduce((s, t) => s + (Number(t.amount) || 0), 0);
   return {
     total: list.length, wins, losses, open, net,
     winRate: wins + losses ? Math.round((wins / (wins + losses)) * 100) : 0,
@@ -93,7 +92,6 @@ class ChartBoundary extends Component {
   }
 }
 
-// the height is set here, so charts show even if Analytics.css did not load
 function ChartBox({ height = 300, children }) {
   return (
     <ChartBoundary>
@@ -109,43 +107,51 @@ const axis = { tick: { fontSize: 12, fill: "#64748b" }, axisLine: false, tickLin
 function NetBars({ data, nameKey = "label" }) {
   return (
     <ChartBox height={300}>
-        <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-          <CartesianGrid vertical={false} stroke="#e2e8f0" />
-          <XAxis dataKey={nameKey} {...axis} interval="preserveStartEnd" />
-          <YAxis {...axis} tickFormatter={compactUSD} width={64} />
-          <Tooltip content={<MoneyTip />} cursor={{ fill: "rgba(37, 99, 235, 0.06)" }} />
-          <ReferenceLine y={0} stroke="#94a3b8" />
-          <Bar dataKey="net" name="Net P&L" radius={[4, 4, 0, 0]} maxBarSize={48}>
-            {data.map((d) => <Cell key={d.name} fill={d.net >= 0 ? GREEN : RED} />)}
-          </Bar>
-        </BarChart>
-      </ChartBox>
+      <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+        <CartesianGrid vertical={false} stroke="#e2e8f0" />
+        <XAxis dataKey={nameKey} {...axis} interval="preserveStartEnd" />
+        <YAxis {...axis} tickFormatter={compactUSD} width={64} />
+        <Tooltip content={<MoneyTip />} cursor={{ fill: "rgba(37, 99, 235, 0.06)" }} />
+        <ReferenceLine y={0} stroke="#94a3b8" />
+        <Bar dataKey="net" name="Net P&L" radius={[4, 4, 0, 0]} maxBarSize={48}>
+          {data.map((d) => <Cell key={d.name} fill={d.net >= 0 ? GREEN : RED} />)}
+        </Bar>
+      </BarChart>
+    </ChartBox>
   );
 }
 
-/* ---------- the analytics view (takes the trades as a prop) ---------- */
-export function AnalyticsView({ all: raw }) {
-  // ignore trades with no date, and treat a missing amount as 0
-  const all = useMemo(
-    () =>
-      (raw || [])
-        .filter((t) => t && /^\d{4}-\d{2}-\d{2}$/.test(t.tradeDate || ""))
-        .map((t) => ({ ...t, amount: Number(t.amount) || 0, trader: t.trader || "Unknown", coinSymbol: t.coinSymbol || "?" })),
-    [raw]
-  );
+/* ---------- the main analytics component ---------- */
+export default function Analytics() {
   const [mode, setMode] = useState("week"); // week | month
   const [range, setRange] = useState("all");
   const [trader, setTrader] = useState("All");
 
-  const traderNames = useMemo(() => [...new Set(all.map((t) => t.trader))].sort(), [all]);
+  const { data: tradersList } = useTraders();
+  const traderOptions = useMemo(() => {
+    return Array.isArray(tradersList) ? tradersList : [];
+  }, [tradersList]);
 
-  const rows = useMemo(() => {
-    const days = RANGES.find((r) => r.key === range).days;
-    const fromDate = days ? shiftDay(toISO(new Date()), -(days - 1)) : "0000-00-00";
-    return all.filter((t) => t.tradeDate >= fromDate && (trader === "All" || t.trader === trader));
-  }, [all, range, trader]);
+  // Server-side pre-aggregated analytics query via TanStack Query
+  const { data, isLoading, isError, error, refetch } = useAnalytics({
+    range,
+    trader: trader === "All" ? undefined : trader,
+  });
 
-  const total = useMemo(() => stats(rows), [rows]);
+  const total = data?.summary || { total: 0, net: 0, wins: 0, losses: 0, open: 0, winRate: 0 };
+  const byTraderRaw = data?.byTrader || [];
+  const byCoinRaw = data?.byCoin || [];
+  const rows = data?.trades || [];
+
+  const byTrader = useMemo(
+    () => byTraderRaw.map((t) => ({ ...t, label: t.name, long: t.name })),
+    [byTraderRaw]
+  );
+
+  const byCoin = useMemo(
+    () => byCoinRaw.slice(0, 12).map((c) => ({ ...c, label: c.name, long: c.name })),
+    [byCoinRaw]
+  );
 
   // net P&L per week / month (oldest to newest)
   const allPeriods = useMemo(
@@ -169,30 +175,21 @@ export function AnalyticsView({ all: raw }) {
       });
   }, [rows]);
 
-  const split = [
+  const split = useMemo(() => [
     { name: "Win", value: total.wins, color: GREEN },
     { name: "Loss", value: total.losses, color: RED },
     { name: "Open", value: total.open, color: AMBER },
-    { name: "Breakeven", value: total.total - total.wins - total.losses - total.open, color: GREY },
-  ].filter((s) => s.value > 0);
+    { name: "Breakeven", value: Math.max(0, total.total - total.wins - total.losses - total.open), color: GREY },
+  ].filter((s) => s.value > 0), [total]);
 
-  const byTrader = useMemo(
-    () => groupBy(rows, (t) => t.trader).sort((a, b) => b.net - a.net).map((t) => ({ ...t, label: t.name, long: t.name })),
-    [rows]
-  );
-  const byCoin = useMemo(
-    () => groupBy(rows, (t) => t.coinSymbol).sort((a, b) => b.net - a.net).slice(0, 12).map((c) => ({ ...c, label: c.name, long: c.name })),
-    [rows]
-  );
-
-  // every trader's net for each week / month (side-by-side bars)
+  // every trader's net for each week / month
   const traderNamesInRows = byTrader.map((t) => t.name);
   const traderByPeriod = useMemo(
     () =>
       periods.map((p) => {
         const row = { name: p.name, label: p.label, long: p.long };
         traderNamesInRows.forEach((n) => {
-          row[n] = Math.round(p.rows.filter((t) => t.trader === n).reduce((s, t) => s + t.amount, 0) * 100) / 100;
+          row[n] = Math.round(p.rows.filter((t) => t.trader === n).reduce((s, t) => s + (Number(t.amount) || 0), 0) * 100) / 100;
         });
         return row;
       }),
@@ -200,6 +197,26 @@ export function AnalyticsView({ all: raw }) {
   );
 
   const unit = mode === "week" ? "week" : "month";
+
+  if (isError) {
+    return (
+      <main className="analytics">
+        <div className="an-card an-state">
+          <p className="an-state-title error">Could not load analytics</p>
+          <p>{error?.message || "Server error"}</p>
+          <button className="an-btn" onClick={() => refetch()}>Try again</button>
+        </div>
+      </main>
+    );
+  }
+
+  if (isLoading && !data) {
+    return (
+      <main className="analytics">
+        <PageSkeleton />
+      </main>
+    );
+  }
 
   return (
     <main className="analytics">
@@ -215,12 +232,12 @@ export function AnalyticsView({ all: raw }) {
           </select>
           <select value={trader} onChange={(e) => setTrader(e.target.value)} className="an-select" aria-label="Trader">
             <option value="All">All traders</option>
-            {traderNames.map((n) => <option key={n} value={n}>{n}</option>)}
+            {traderOptions.map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
         </div>
       </div>
 
-      {rows.length === 0 ? (
+      {total.total === 0 ? (
         <div className="an-card an-state">
           <p className="an-state-title">No trades in this period</p>
           <p>Try a longer range or a different trader, or add trades from the Journal page.</p>
@@ -240,27 +257,27 @@ export function AnalyticsView({ all: raw }) {
           <div className="an-grid">
             <Panel title="Cumulative P&L" sub="Running total, day by day">
               <ChartBox height={300}>
-                  <LineChart data={curve} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                    <CartesianGrid vertical={false} stroke="#e2e8f0" />
-                    <XAxis dataKey="label" {...axis} interval="preserveStartEnd" minTickGap={24} />
-                    <YAxis {...axis} tickFormatter={compactUSD} width={64} />
-                    <Tooltip content={<MoneyTip />} />
-                    <ReferenceLine y={0} stroke="#94a3b8" />
-                    <Line type="monotone" dataKey="net" name="Total P&L" stroke="#2563eb" strokeWidth={2.5} dot={curve.length < 40} />
-                  </LineChart>
-                </ChartBox>
+                <LineChart data={curve} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                  <CartesianGrid vertical={false} stroke="#e2e8f0" />
+                  <XAxis dataKey="label" {...axis} interval="preserveStartEnd" minTickGap={24} />
+                  <YAxis {...axis} tickFormatter={compactUSD} width={64} />
+                  <Tooltip content={<MoneyTip />} />
+                  <ReferenceLine y={0} stroke="#94a3b8" />
+                  <Line type="monotone" dataKey="net" name="Total P&L" stroke="#2563eb" strokeWidth={2.5} dot={curve.length < 40} />
+                </LineChart>
+              </ChartBox>
             </Panel>
 
             <Panel title="Win / Loss / Open" sub="Number of trades by result">
               <ChartBox height={300}>
-                  <PieChart>
-                    <Pie data={split} dataKey="value" nameKey="name" innerRadius="55%" outerRadius="82%" paddingAngle={2}>
-                      {split.map((s) => <Cell key={s.name} fill={s.color} />)}
-                    </Pie>
-                    <Tooltip formatter={(v, n) => [`${v} trades`, n]} />
-                    <Legend verticalAlign="bottom" iconType="circle" />
-                  </PieChart>
-                </ChartBox>
+                <PieChart>
+                  <Pie data={split} dataKey="value" nameKey="name" innerRadius="55%" outerRadius="82%" paddingAngle={2}>
+                    {split.map((s) => <Cell key={s.name} fill={s.color} />)}
+                  </Pie>
+                  <Tooltip formatter={(v, n) => [`${v} trades`, n]} />
+                  <Legend verticalAlign="bottom" iconType="circle" />
+                </PieChart>
+              </ChartBox>
             </Panel>
           </div>
 
@@ -291,18 +308,18 @@ export function AnalyticsView({ all: raw }) {
           {byTrader.length > 1 && (
             <Panel title={`Trader-wise by ${unit}`} sub="Each trader's net P&L in every period, side by side">
               <ChartBox height={340}>
-                  <BarChart data={traderByPeriod} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                    <CartesianGrid vertical={false} stroke="#e2e8f0" />
-                    <XAxis dataKey="label" {...axis} interval="preserveStartEnd" />
-                    <YAxis {...axis} tickFormatter={compactUSD} width={64} />
-                    <Tooltip content={<MoneyTip />} cursor={{ fill: "rgba(37, 99, 235, 0.06)" }} />
-                    <Legend iconType="circle" />
-                    <ReferenceLine y={0} stroke="#94a3b8" />
-                    {traderNamesInRows.map((n, i) => (
-                      <Bar key={n} dataKey={n} name={n} fill={PALETTE[i % PALETTE.length]} radius={[3, 3, 0, 0]} maxBarSize={28} />
-                    ))}
-                  </BarChart>
-                </ChartBox>
+                <BarChart data={traderByPeriod} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid vertical={false} stroke="#e2e8f0" />
+                  <XAxis dataKey="label" {...axis} interval="preserveStartEnd" />
+                  <YAxis {...axis} tickFormatter={compactUSD} width={64} />
+                  <Tooltip content={<MoneyTip />} cursor={{ fill: "rgba(37, 99, 235, 0.06)" }} />
+                  <Legend iconType="circle" />
+                  <ReferenceLine y={0} stroke="#94a3b8" />
+                  {traderNamesInRows.map((n, i) => (
+                    <Bar key={n} dataKey={n} name={n} fill={PALETTE[i % PALETTE.length]} radius={[3, 3, 0, 0]} maxBarSize={28} />
+                  ))}
+                </BarChart>
+              </ChartBox>
             </Panel>
           )}
 
@@ -313,52 +330,4 @@ export function AnalyticsView({ all: raw }) {
       )}
     </main>
   );
-}
-
-/* ---------- page: loads the data, then shows the view ---------- */
-const TRADES_CACHE_KEY = "aizu_cached_trades";
-
-const readCachedTrades = () => {
-  try {
-    const raw = sessionStorage.getItem(TRADES_CACHE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-};
-
-export default function Analytics() {
-  const [all, setAll] = useState(readCachedTrades);
-  const [error, setError] = useState("");
-  const [refresh, setRefresh] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    setError("");
-    getTrades({})
-      .then((data) => {
-        if (!cancelled) {
-          setAll(data);
-          try { sessionStorage.setItem(TRADES_CACHE_KEY, JSON.stringify(data)); } catch {}
-        }
-      })
-      .catch((err) => !cancelled && setError(err.message));
-    return () => { cancelled = true; };
-  }, [refresh]);
-
-  if (error) {
-    return (
-      <main className="analytics">
-        <div className="an-card an-state">
-          <p className="an-state-title error">Could not load analytics</p>
-          <p>{error}</p>
-          <button className="an-btn" onClick={() => setRefresh((n) => n + 1)}>Try again</button>
-        </div>
-      </main>
-    );
-  }
-  if (all === null) {
-    return <main className="analytics"><div className="an-card an-state">Loading analytics…</div></main>;
-  }
-  return <AnalyticsView all={all} />;
 }

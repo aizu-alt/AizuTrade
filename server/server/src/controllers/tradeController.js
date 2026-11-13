@@ -12,19 +12,56 @@ const pick = (body) =>
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-// GET /api/trades?date=2024-10-24&trader=&side=&result=&q= (Active trades only)
+// GET /api/trades?date=2024-10-24&trader=&side=&result=&q=&page=&limit= (Active trades only)
 export async function getTrades(req, res) {
-  const { date, trader, side, result, q } = req.query;
+  const { date, dateFrom, dateTo, trader, side, result, coin, q, page, limit } = req.query;
   const filter = { isDeleted: { $ne: true } };
   if (date) filter.tradeDate = date;
+  if (dateFrom && dateTo) {
+    filter.tradeDate = { $gte: dateFrom, $lte: dateTo };
+  } else if (dateFrom) {
+    filter.tradeDate = { $gte: dateFrom };
+  } else if (dateTo) {
+    filter.tradeDate = { $lte: dateTo };
+  }
   if (trader && trader !== "All") filter.trader = trader;
 
   if (side && side !== "all") filter.side = side;
   if (result && result !== "all") filter.result = result;
+  if (coin && coin !== "all") filter.coinSymbol = coin.toUpperCase();
   if (q) {
     const rx = new RegExp(escapeRegex(q), "i");
     filter.$or = [{ coinSymbol: rx }, { remarks: rx }, { trader: rx }];
   }
+
+  const pageNum = parseInt(page, 10);
+  const limitNum = parseInt(limit, 10);
+
+  // Return paginated response if page & limit provided
+  if (pageNum > 0 && limitNum > 0) {
+    const skip = (pageNum - 1) * limitNum;
+    const [trades, total] = await Promise.all([
+      Trade.find(filter)
+        .sort({ tradeDate: -1, timeIn: 1 })
+        .skip(skip)
+        .limit(limitNum)
+        .select("-__v")
+        .lean(),
+      Trade.countDocuments(filter),
+    ]);
+
+    for (let i = 0; i < trades.length; i++) {
+      trades[i].id = trades[i]._id.toString();
+    }
+    return res.json({
+      trades,
+      total,
+      page: pageNum,
+      pages: Math.ceil(total / limitNum),
+    });
+  }
+
+  // Non-paginated query
   const trades = await Trade.find(filter)
     .sort({ tradeDate: -1, timeIn: 1 })
     .select("-__v")
@@ -35,11 +72,170 @@ export async function getTrades(req, res) {
   res.json(trades);
 }
 
+// GET /api/trades/analytics?range=90&mode=week&trader=All
+export async function getAnalytics(req, res) {
+  const { range = "90", trader } = req.query;
+  const match = { isDeleted: { $ne: true } };
+
+  if (trader && trader !== "All") {
+    match.trader = trader;
+  }
+
+  if (range && range !== "all") {
+    const days = parseInt(range, 10);
+    if (!isNaN(days) && days > 0) {
+      const d = new Date();
+      d.setDate(d.getDate() - days);
+      match.tradeDate = { $gte: d.toISOString().slice(0, 10) };
+    }
+  }
+
+  const [aggResult] = await Trade.aggregate([
+    { $match: match },
+    {
+      $facet: {
+        summary: [
+          {
+            $group: {
+              _id: null,
+              total: { $sum: 1 },
+              net: { $sum: "$amount" },
+              wins: { $sum: { $cond: [{ $eq: ["$result", "win"] }, 1, 0] } },
+              losses: { $sum: { $cond: [{ $eq: ["$result", "loss"] }, 1, 0] } },
+              open: { $sum: { $cond: [{ $eq: ["$result", "open"] }, 1, 0] } },
+              grossWin: { $sum: { $cond: [{ $gt: ["$amount", 0] }, "$amount", 0] } },
+              grossLoss: { $sum: { $cond: [{ $lt: ["$amount", 0] }, { $abs: "$amount" }, 0] } },
+            },
+          },
+        ],
+        byTrader: [
+          {
+            $group: {
+              _id: "$trader",
+              total: { $sum: 1 },
+              net: { $sum: "$amount" },
+              wins: { $sum: { $cond: [{ $eq: ["$result", "win"] }, 1, 0] } },
+              losses: { $sum: { $cond: [{ $eq: ["$result", "loss"] }, 1, 0] } },
+              open: { $sum: { $cond: [{ $eq: ["$result", "open"] }, 1, 0] } },
+            },
+          },
+          { $sort: { net: -1 } },
+        ],
+        byCoin: [
+          {
+            $group: {
+              _id: "$coinSymbol",
+              total: { $sum: 1 },
+              net: { $sum: "$amount" },
+              wins: { $sum: { $cond: [{ $eq: ["$result", "win"] }, 1, 0] } },
+              losses: { $sum: { $cond: [{ $eq: ["$result", "loss"] }, 1, 0] } },
+            },
+          },
+          { $sort: { total: -1 } },
+        ],
+        trades: [
+          {
+            $project: {
+              _id: 1,
+              tradeDate: 1,
+              trader: 1,
+              coinSymbol: 1,
+              result: 1,
+              amount: 1,
+            },
+          },
+          { $sort: { tradeDate: 1 } },
+        ],
+      },
+    },
+  ]);
+
+  const summaryRaw = aggResult?.summary?.[0] || {
+    total: 0,
+    net: 0,
+    wins: 0,
+    losses: 0,
+    open: 0,
+    grossWin: 0,
+    grossLoss: 0,
+  };
+
+  const winLossCount = summaryRaw.wins + summaryRaw.losses;
+  const winRate = winLossCount > 0 ? Math.round((summaryRaw.wins / winLossCount) * 100) : 0;
+
+  const summary = {
+    ...summaryRaw,
+    winRate,
+  };
+
+  const byTrader = (aggResult?.byTrader || []).map((t) => {
+    const wl = t.wins + t.losses;
+    return {
+      name: t._id || "Unknown",
+      total: t.total,
+      net: t.net,
+      wins: t.wins,
+      losses: t.losses,
+      open: t.open,
+      winRate: wl > 0 ? Math.round((t.wins / wl) * 100) : 0,
+    };
+  });
+
+  const byCoin = (aggResult?.byCoin || []).map((c) => {
+    const wl = c.wins + c.losses;
+    return {
+      name: c._id || "Unknown",
+      total: c.total,
+      net: c.net,
+      wins: c.wins,
+      losses: c.losses,
+      winRate: wl > 0 ? Math.round((c.wins / wl) * 100) : 0,
+    };
+  });
+
+  const trades = (aggResult?.trades || []).map((t) => ({
+    id: t._id.toString(),
+    tradeDate: t.tradeDate,
+    trader: t.trader,
+    coinSymbol: t.coinSymbol,
+    result: t.result,
+    amount: t.amount,
+  }));
+
+  res.json({ summary, byTrader, byCoin, trades });
+}
+
+// GET /api/trades/export (Optimized endpoint for PDF/Excel exports)
+export async function getExportTrades(req, res) {
+  const { date, dateFrom, dateTo, trader } = req.query;
+  const filter = { isDeleted: { $ne: true } };
+  if (date) filter.tradeDate = date;
+  if (dateFrom && dateTo) {
+    filter.tradeDate = { $gte: dateFrom, $lte: dateTo };
+  } else if (dateFrom) {
+    filter.tradeDate = { $gte: dateFrom };
+  } else if (dateTo) {
+    filter.tradeDate = { $lte: dateTo };
+  }
+  if (trader && trader !== "All") filter.trader = trader;
+
+  const trades = await Trade.find(filter)
+    .sort({ tradeDate: -1, timeIn: 1 })
+    .select("trader tradeDate coinSymbol side timeIn qty entryPrice target result closingDate closingTime amount tradesCount remarks")
+    .lean();
+
+  for (let i = 0; i < trades.length; i++) {
+    trades[i].id = trades[i]._id.toString();
+  }
+  res.json(trades);
+}
+
 // POST /api/trades
 export async function createTrade(req, res) {
   const trade = await Trade.create(pick(req.body));
+  // Background trader upsert so client receives immediate 201 response with created trade
   if (trade.trader) {
-    await Trader.updateOne({ name: trade.trader }, { name: trade.trader }, { upsert: true });
+    Trader.updateOne({ name: trade.trader }, { name: trade.trader }, { upsert: true }).catch(() => {});
   }
   res.status(201).json(trade);
 }

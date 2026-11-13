@@ -25,11 +25,11 @@ const tradeSchema = new mongoose.Schema(
 );
 
 tradeSchema.index({ isDeleted: 1, deletedAt: -1 });
-tradeSchema.index({ tradeDate: -1, timeIn: 1 });
-tradeSchema.index({ trader: 1, tradeDate: -1 });
-tradeSchema.index({ coinSymbol: 1 });
-tradeSchema.index({ result: 1 });
-tradeSchema.index({ side: 1 });
+tradeSchema.index({ isDeleted: 1, tradeDate: -1, timeIn: 1 });
+tradeSchema.index({ isDeleted: 1, trader: 1, tradeDate: -1 });
+tradeSchema.index({ isDeleted: 1, coinSymbol: 1, tradeDate: -1 });
+tradeSchema.index({ isDeleted: 1, result: 1, tradeDate: -1 });
+tradeSchema.index({ isDeleted: 1, side: 1, tradeDate: -1 });
 
 // send "id" to the frontend instead of "_id" / "__v"
 tradeSchema.set("toJSON", {

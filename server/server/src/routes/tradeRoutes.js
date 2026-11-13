@@ -3,6 +3,8 @@ import { asyncHandler as h } from "../middleware/errorHandler.js";
 import { requireAdmin } from "../middleware/auth.js";
 import {
   getTrades,
+  getAnalytics,
+  getExportTrades,
   createTrade,
   bulkCreateTrades,
   updateTrade,
@@ -15,6 +17,10 @@ import {
 } from "../controllers/tradeController.js";
 
 const router = Router();
+
+// Dedicated aggregated analytics & export routes (must be defined BEFORE /:id parameters!)
+router.get("/analytics", h(getAnalytics));
+router.get("/export", h(getExportTrades));
 
 // Recycle Bin routes (must be defined BEFORE /:id parameters!)
 router.get("/recycle-bin", h(getRecycleBin));

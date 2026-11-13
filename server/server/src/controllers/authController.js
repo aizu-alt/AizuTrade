@@ -4,7 +4,7 @@ import User from "../models/User.js";
 import { signToken } from "../middleware/auth.js";
 import { getNeonUserByEmail } from "../config/neon.js";
 
-const DUMMY_HASH = bcrypt.hashSync("not-a-real-password", 12);
+const DUMMY_HASH = bcrypt.hashSync("not-a-real-password", 10);
 const RESEND_SECONDS = 60;
 
 const NEON_AUTH_BASE = (process.env.NEON_AUTH_BASE_URL || "").trim().replace(/\/+$/, "");
@@ -86,7 +86,7 @@ export async function login(req, res) {
       user = await User.create({
         name: neonUser.name || neonRecord.name || email.split("@")[0],
         email,
-        passwordHash: await bcrypt.hash(password, 12),
+        passwordHash: await bcrypt.hash(password, 10),
         role: "admin",
         emailVerified: Boolean(neonUser.emailVerified || neonRecord.emailVerified),
       });
@@ -238,7 +238,7 @@ export async function resetPassword(req, res) {
     ],
   });
 
-  const passwordHash = await bcrypt.hash(newPass, 12);
+  const passwordHash = await bcrypt.hash(newPass, 10);
   if (user) {
     user.passwordHash = passwordHash;
     user.role = "admin";

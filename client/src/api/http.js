@@ -9,6 +9,16 @@ export const setToken = (token) => {
   try { token ? localStorage.setItem(KEY, token) : localStorage.removeItem(KEY); } catch { /* storage blocked */ }
 };
 
+// Fire-and-forget ping to wake Render cold start immediately when the client loads
+export function wakeServer() {
+  try {
+    const root = BASE.replace(/\/api\/?$/, "");
+    fetch(`${root}/health`, { method: "GET", cache: "no-store" }).catch(() => {});
+  } catch {
+    /* ignore errors on background wake */
+  }
+}
+
 export async function request(path, options = {}) {
   const token = getToken();
   let res;

@@ -31,7 +31,7 @@ export async function ensureAdmin() {
   await User.create({
     name,
     email,
-    passwordHash: await bcrypt.hash(password, 12),
+    passwordHash: await bcrypt.hash(password, 10),
     role: "admin",
   });
   console.log(`Admin login created for ${email}.`);

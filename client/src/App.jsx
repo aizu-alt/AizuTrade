@@ -1,16 +1,19 @@
 // client/src/App.jsx
-import { Component, useState } from "react";
+import { Component, useState, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext";
 import { ThemeProvider } from "./theme/ThemeContext";
 import RequireAuth from "./components/auth/RequireAuth";
 import Navbar from "./components/layout/Navbar";
 import Footer from "./components/layout/Footer";
-import Login from "./pages/Login";
-import ForgotPassword from "./pages/ForgotPassword";
-import VerifyEmail from "./pages/VerifyEmail";
-import Journal from "./pages/Journal";
-import Analytics from "./pages/Analytics";
+import { PageSkeleton } from "./components/common/Skeleton";
+
+// Lazy-loaded route pages for minimal initial bundle & faster First Contentful Paint
+const Login = lazy(() => import("./pages/Login"));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const VerifyEmail = lazy(() => import("./pages/VerifyEmail"));
+const Journal = lazy(() => import("./pages/Journal"));
+const Analytics = lazy(() => import("./pages/Analytics"));
 
 // If a page crashes, show the reason on screen instead of a blank page
 class ErrorBoundary extends Component {
@@ -40,7 +43,9 @@ function Layout() {
     <>
       <Navbar />
       <ErrorBoundary key={pathname}>
-        <Outlet />
+        <Suspense fallback={<PageSkeleton />}>
+          <Outlet />
+        </Suspense>
       </ErrorBoundary>
       <Footer />
     </>
@@ -54,23 +59,25 @@ export default function App() {
     <ThemeProvider>
       <BrowserRouter>
         <AuthProvider>
-          <Routes>
-            {/* public: login, forgot-password, and email verification */}
-            <Route path="/login" element={<Login />} />
-            <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route path="/verify-email" element={<VerifyEmail />} />
+          <Suspense fallback={<PageSkeleton />}>
+            <Routes>
+              {/* public: login, forgot-password, and email verification */}
+              <Route path="/login" element={<Login />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/verify-email" element={<VerifyEmail />} />
 
-            {/* authenticated pages */}
-            <Route element={<RequireAuth />}>
-              <Route element={<Layout />}>
-                <Route path="/" element={<Navigate to="/journal" replace />} />
-                <Route path="/journal" element={<Journal formOpen={formOpen} setFormOpen={setFormOpen} />} />
-                <Route path="/analytics" element={<Analytics />} />
+              {/* authenticated pages */}
+              <Route element={<RequireAuth />}>
+                <Route element={<Layout />}>
+                  <Route path="/" element={<Navigate to="/journal" replace />} />
+                  <Route path="/journal" element={<Journal formOpen={formOpen} setFormOpen={setFormOpen} />} />
+                  <Route path="/analytics" element={<Analytics />} />
+                </Route>
               </Route>
-            </Route>
 
-            <Route path="*" element={<Navigate to="/journal" replace />} />
-          </Routes>
+              <Route path="*" element={<Navigate to="/journal" replace />} />
+            </Routes>
+          </Suspense>
         </AuthProvider>
       </BrowserRouter>
     </ThemeProvider>
